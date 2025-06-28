@@ -13,7 +13,10 @@ import {
   TrendingUp, 
   TrendingDown,
   DollarSign,
-  Users
+  Users,
+  UserPlus,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 interface Partner {
@@ -45,20 +48,38 @@ interface TransactionForm {
   transaction_date: string;
 }
 
+interface PartnerForm {
+  email: string;
+  full_name: string;
+  initial_balance: number;
+  password: string;
+}
+
 export default function Partners() {
   const { user } = useAuth();
   const [partners, setPartners] = useState<Partner[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showTransactionForm, setShowTransactionForm] = useState(false);
+  const [showPartnerForm, setShowPartnerForm] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   
-  const form = useForm<TransactionForm>({
+  const transactionForm = useForm<TransactionForm>({
     defaultValues: {
       from_partner_id: '',
       to_partner_id: '',
       amount: 0,
       description: '',
       transaction_date: format(new Date(), 'yyyy-MM-dd')
+    }
+  });
+
+  const partnerForm = useForm<PartnerForm>({
+    defaultValues: {
+      email: '',
+      full_name: '',
+      initial_balance: 0,
+      password: 'partner123' // Default password
     }
   });
 
@@ -98,6 +119,60 @@ export default function Partners() {
     }
   };
 
+  const handlePartnerSubmit = async (data: PartnerForm) => {
+    try {
+      // First, create the user account in Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+      });
+
+      if (authError) {
+        if (authError.message.includes('already registered')) {
+          alert('A user with this email already exists. Please use a different email.');
+        } else {
+          alert(`Error creating user account: ${authError.message}`);
+        }
+        return;
+      }
+
+      if (!authData.user) {
+        alert('Failed to create user account. Please try again.');
+        return;
+      }
+
+      // Create partner profile
+      const { error: partnerError } = await supabase
+        .from('partners')
+        .insert({
+          id: authData.user.id,
+          email: data.email,
+          full_name: data.full_name,
+          current_balance: data.initial_balance,
+        });
+
+      if (partnerError) {
+        console.error('Error creating partner profile:', partnerError);
+        alert('Error creating partner profile. Please try again.');
+        return;
+      }
+
+      partnerForm.reset({
+        email: '',
+        full_name: '',
+        initial_balance: 0,
+        password: 'partner123'
+      });
+      setShowPartnerForm(false);
+      fetchData();
+      
+      alert(`Partner added successfully!\n\nLogin Credentials:\nEmail: ${data.email}\nPassword: ${data.password}\n\nPlease share these credentials with the new partner.`);
+    } catch (error) {
+      console.error('Error creating partner:', error);
+      alert('Error creating partner. Please try again.');
+    }
+  };
+
   const handleTransactionSubmit = async (data: TransactionForm) => {
     if (!user) return;
 
@@ -119,7 +194,7 @@ export default function Partners() {
 
       if (error) throw error;
 
-      form.reset({
+      transactionForm.reset({
         from_partner_id: '',
         to_partner_id: '',
         amount: 0,
@@ -150,6 +225,25 @@ export default function Partners() {
     }
   };
 
+  const handleDeletePartner = async (partnerId: string, partnerName: string) => {
+    if (!confirm(`Are you sure you want to remove ${partnerName} from the system? This will delete all their transactions and cannot be undone.`)) return;
+
+    try {
+      // Delete the partner (this will cascade delete transactions due to foreign key constraints)
+      const { error } = await supabase
+        .from('partners')
+        .delete()
+        .eq('id', partnerId);
+
+      if (error) throw error;
+      fetchData();
+      alert(`${partnerName} has been removed from the system.`);
+    } catch (error) {
+      console.error('Error deleting partner:', error);
+      alert('Error removing partner. They may have existing transactions that prevent deletion.');
+    }
+  };
+
   const totalBalance = partners.reduce((sum, partner) => sum + partner.current_balance, 0);
   const positiveBalances = partners.filter(p => p.current_balance > 0);
   const negativeBalances = partners.filter(p => p.current_balance < 0);
@@ -167,13 +261,22 @@ export default function Partners() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Partner Management</h1>
-        <button
-          onClick={() => setShowTransactionForm(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-        >
-          <ArrowUpDown className="h-4 w-4" />
-          New Transaction
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowPartnerForm(true)}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+          >
+            <UserPlus className="h-4 w-4" />
+            Add Partner
+          </button>
+          <button
+            onClick={() => setShowTransactionForm(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+          >
+            <ArrowUpDown className="h-4 w-4" />
+            New Transaction
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -227,6 +330,113 @@ export default function Partners() {
         </div>
       </div>
 
+      {/* Add Partner Form Modal */}
+      {showPartnerForm && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Add New Partner</h2>
+              <button
+                onClick={() => setShowPartnerForm(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={partnerForm.handleSubmit(handlePartnerSubmit)} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  {...partnerForm.register('full_name', { required: true })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter partner's full name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  {...partnerForm.register('email', { required: true })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter partner's email"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Initial Balance (₹)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  {...partnerForm.register('initial_balance', { required: true })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Default Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    {...partnerForm.register('password', { required: true })}
+                    className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4 text-gray-400" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-gray-400" />
+                    )}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  The partner can change this password after first login
+                </p>
+              </div>
+
+              <div className="bg-blue-50 p-3 rounded-md">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> The new partner will receive login credentials to access the system. 
+                  Make sure to share the email and password with them securely.
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  Add Partner
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPartnerForm(false)}
+                  className="flex-1 bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Transaction Form Modal */}
       {showTransactionForm && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
@@ -241,13 +451,13 @@ export default function Partners() {
               </button>
             </div>
 
-            <form onSubmit={form.handleSubmit(handleTransactionSubmit)} className="space-y-4">
+            <form onSubmit={transactionForm.handleSubmit(handleTransactionSubmit)} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   From Partner
                 </label>
                 <select
-                  {...form.register('from_partner_id', { required: true })}
+                  {...transactionForm.register('from_partner_id', { required: true })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select partner</option>
@@ -264,7 +474,7 @@ export default function Partners() {
                   To Partner
                 </label>
                 <select
-                  {...form.register('to_partner_id', { required: true })}
+                  {...transactionForm.register('to_partner_id', { required: true })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select partner</option>
@@ -283,7 +493,7 @@ export default function Partners() {
                 <input
                   type="number"
                   step="0.01"
-                  {...form.register('amount', { required: true, min: 0.01 })}
+                  {...transactionForm.register('amount', { required: true, min: 0.01 })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -294,7 +504,7 @@ export default function Partners() {
                 </label>
                 <input
                   type="date"
-                  {...form.register('transaction_date', { required: true })}
+                  {...transactionForm.register('transaction_date', { required: true })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -304,7 +514,7 @@ export default function Partners() {
                   Description (Optional)
                 </label>
                 <textarea
-                  {...form.register('description')}
+                  {...transactionForm.register('description')}
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Transaction description..."
@@ -354,6 +564,9 @@ export default function Partners() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Joined
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -383,6 +596,15 @@ export default function Partners() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                     {format(new Date(partner.created_at), 'MMM dd, yyyy')}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <button
+                      onClick={() => handleDeletePartner(partner.id, partner.full_name)}
+                      className="text-red-600 hover:text-red-800"
+                      title="Remove Partner"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </td>
                 </tr>
               ))}
