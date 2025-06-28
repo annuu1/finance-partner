@@ -78,12 +78,12 @@ export default function DailySales() {
 
       if (partnersError) throw partnersError;
 
-      // Fetch sales with partner information
+      // Fetch sales with partner information - explicitly specify the foreign key relationship
       const { data: salesData, error: salesError } = await supabase
         .from('daily_sales')
         .select(`
           *,
-          partner:partners(full_name)
+          partner:partners!daily_sales_partner_id_fkey(full_name)
         `)
         .order('date', { ascending: false });
 
@@ -106,6 +106,33 @@ export default function DailySales() {
       .neq('id', excludeId || '');
     
     return (data?.length || 0) > 0;
+  };
+
+  const updatePartnerBalance = async (partnerId: string, amount: number) => {
+    try {
+      // First, get the current balance
+      const { data: partnerData, error: fetchError } = await supabase
+        .from('partners')
+        .select('current_balance')
+        .eq('id', partnerId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const currentBalance = partnerData.current_balance || 0;
+      const newBalance = currentBalance + amount;
+
+      // Update the partner's balance
+      const { error: updateError } = await supabase
+        .from('partners')
+        .update({ current_balance: newBalance })
+        .eq('id', partnerId);
+
+      if (updateError) throw updateError;
+    } catch (error) {
+      console.error('Error updating partner balance:', error);
+      throw error;
+    }
   };
 
   const handleSubmit = async (data: SalesForm) => {
@@ -161,6 +188,9 @@ export default function DailySales() {
           });
 
         if (error) throw error;
+
+        // Update partner's current balance
+        await updatePartnerBalance(data.partner_id, totalAmount);
       }
 
       form.reset({

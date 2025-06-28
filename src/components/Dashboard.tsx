@@ -57,12 +57,12 @@ export default function Dashboard() {
     const endDate = endOfDay(new Date());
 
     try {
-      // Fetch sales data with partner information
+      // Fetch sales data with partner information - explicitly specify the foreign key relationship
       const { data: salesData } = await supabase
         .from('daily_sales')
         .select(`
           *,
-          partner:partners(full_name)
+          partner:partners!daily_sales_partner_id_fkey(full_name)
         `)
         .gte('date', format(startDate, 'yyyy-MM-dd'))
         .lte('date', format(endDate, 'yyyy-MM-dd'))
