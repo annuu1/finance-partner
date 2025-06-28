@@ -19,14 +19,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let mounted = true;
-
     const getSession = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         
-        if (!mounted) return;
-
         if (error) {
           console.error('Error getting session:', error);
         }
@@ -46,16 +42,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         console.error('Error in getSession:', error);
       } finally {
-        if (mounted) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     };
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (!mounted) return;
-
         try {
           setSession(session);
           setUser(session?.user ?? null);
@@ -72,9 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           console.error('Error in auth state change:', error);
         } finally {
-          if (mounted) {
-            setLoading(false);
-          }
+          setLoading(false);
         }
       }
     );
@@ -82,7 +72,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     getSession();
 
     return () => {
-      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
@@ -94,10 +83,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .from('partners')
         .select('id')
         .eq('id', user.id)
-        .maybeSingle(); // Use maybeSingle instead of single to avoid errors when no record exists
+        .single();
 
       // If partner doesn't exist, create one
-      if (!existingPartner && !fetchError) {
+      if (!existingPartner && fetchError?.code === 'PGRST116') {
         const { error: insertError } = await supabase
           .from('partners')
           .insert({
@@ -111,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.error('Error creating partner profile:', insertError);
           throw insertError;
         }
-      } else if (fetchError) {
+      } else if (fetchError && fetchError.code !== 'PGRST116') {
         console.error('Error checking partner profile:', fetchError);
         throw fetchError;
       }
