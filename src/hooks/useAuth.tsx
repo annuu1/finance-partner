@@ -163,9 +163,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       console.log('Attempting sign in for:', email);
       
-      // Clear any existing session first
-      await supabase.auth.signOut();
-      
       const { data, error } = await supabase.auth.signInWithPassword({ 
         email: email.trim().toLowerCase(), 
         password 
