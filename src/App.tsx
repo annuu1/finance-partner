@@ -17,10 +17,13 @@ function AppContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading application...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent mx-auto mb-6"></div>
+          <div className="space-y-2">
+            <p className="text-xl font-semibold text-gray-800">Loading FinancePartner</p>
+            <p className="text-gray-600">Initializing your business finance dashboard...</p>
+          </div>
         </div>
       </div>
     );
