@@ -113,7 +113,7 @@ export default function DailySales() {
     return (data?.length || 0) > 0;
   };
 
-  const updatePartnerBalance = async (partnerId: string, amount: number) => {
+  const updatePartnerBalance = async (partnerId: string, amount: number, isUpdate: boolean = false, oldAmount: number = 0) => {
     try {
       // First, get the current balance
       const { data: partnerData, error: fetchError } = await supabase
@@ -125,7 +125,15 @@ export default function DailySales() {
       if (fetchError) throw fetchError;
 
       const currentBalance = partnerData.current_balance || 0;
-      const newBalance = currentBalance + amount;
+      let newBalance = currentBalance;
+
+      if (isUpdate) {
+        // For updates, subtract old amount and add new amount
+        newBalance = currentBalance - oldAmount + amount;
+      } else {
+        // For new entries, just add the amount
+        newBalance = currentBalance + amount;
+      }
 
       // Update the partner's balance
       const { error: updateError } = await supabase
@@ -163,6 +171,15 @@ export default function DailySales() {
       }
 
       if (editingId) {
+        // Get the old entry to calculate balance changes
+        const { data: oldEntry, error: fetchError } = await supabase
+          .from('daily_sales')
+          .select('total_amount, partner_id')
+          .eq('id', editingId)
+          .single();
+
+        if (fetchError) throw fetchError;
+
         // Update existing entry
         const { error } = await supabase
           .from('daily_sales')
@@ -177,6 +194,20 @@ export default function DailySales() {
           .eq('id', editingId);
 
         if (error) throw error;
+
+        // Update partner balances if partner changed or amount changed
+        if (oldEntry.partner_id !== data.partner_id) {
+          // Remove from old partner
+          if (oldEntry.partner_id) {
+            await updatePartnerBalance(oldEntry.partner_id, -oldEntry.total_amount);
+          }
+          // Add to new partner
+          await updatePartnerBalance(data.partner_id, totalAmount);
+        } else if (oldEntry.total_amount !== totalAmount) {
+          // Same partner, different amount
+          await updatePartnerBalance(data.partner_id, totalAmount, true, oldEntry.total_amount);
+        }
+
         setEditingId(null);
       } else {
         // Create new entry
@@ -229,12 +260,28 @@ export default function DailySales() {
     if (!confirm('Are you sure you want to delete this sales entry?')) return;
 
     try {
+      // Get the entry to update partner balance
+      const { data: entry, error: fetchError } = await supabase
+        .from('daily_sales')
+        .select('total_amount, partner_id')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Delete the entry
       const { error } = await supabase
         .from('daily_sales')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+
+      // Update partner balance (subtract the deleted amount)
+      if (entry.partner_id) {
+        await updatePartnerBalance(entry.partner_id, -entry.total_amount);
+      }
+
       fetchData();
     } catch (error) {
       console.error('Error deleting sales entry:', error);

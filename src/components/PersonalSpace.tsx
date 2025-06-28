@@ -95,6 +95,7 @@ interface Partner {
 }
 
 interface TransactionForm {
+  from_partner_id: string;
   to_partner_id: string;
   amount: number;
   transaction_type: 'borrow' | 'lend' | 'payment' | 'transfer';
@@ -141,10 +142,12 @@ export default function PersonalSpace() {
   const [showMessageForm, setShowMessageForm] = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<PersonalTransaction | null>(null);
   const [selectedPartner, setSelectedPartner] = useState<string>('');
 
   const transactionForm = useForm<TransactionForm>({
     defaultValues: {
+      from_partner_id: '',
       to_partner_id: '',
       amount: 0,
       transaction_type: 'payment',
@@ -275,26 +278,74 @@ export default function PersonalSpace() {
     if (!user) return;
 
     try {
-      const { error } = await supabase
-        .from('personal_transactions')
-        .insert({
-          from_partner_id: user.id,
-          to_partner_id: data.to_partner_id,
-          amount: data.amount,
-          transaction_type: data.transaction_type,
-          description: data.description || null,
-          category: data.category,
-          transaction_date: data.transaction_date
-        });
+      if (editingTransaction) {
+        // Update existing transaction
+        const { error } = await supabase
+          .from('personal_transactions')
+          .update({
+            from_partner_id: data.from_partner_id,
+            to_partner_id: data.to_partner_id,
+            amount: data.amount,
+            transaction_type: data.transaction_type,
+            description: data.description || null,
+            category: data.category,
+            transaction_date: data.transaction_date
+          })
+          .eq('id', editingTransaction.id);
 
-      if (error) throw error;
+        if (error) throw error;
+        setEditingTransaction(null);
+      } else {
+        // Create new transaction
+        const { error } = await supabase
+          .from('personal_transactions')
+          .insert({
+            from_partner_id: data.from_partner_id,
+            to_partner_id: data.to_partner_id,
+            amount: data.amount,
+            transaction_type: data.transaction_type,
+            description: data.description || null,
+            category: data.category,
+            transaction_date: data.transaction_date
+          });
+
+        if (error) throw error;
+      }
 
       transactionForm.reset();
       setShowTransactionForm(false);
       fetchData();
     } catch (error) {
-      console.error('Error creating personal transaction:', error);
-      alert('Error creating transaction. Please try again.');
+      console.error('Error saving personal transaction:', error);
+      alert('Error saving transaction. Please try again.');
+    }
+  };
+
+  const handleEditTransaction = (transaction: PersonalTransaction) => {
+    setEditingTransaction(transaction);
+    transactionForm.setValue('from_partner_id', transaction.from_partner_id);
+    transactionForm.setValue('to_partner_id', transaction.to_partner_id);
+    transactionForm.setValue('amount', transaction.amount);
+    transactionForm.setValue('transaction_type', transaction.transaction_type);
+    transactionForm.setValue('description', transaction.description || '');
+    transactionForm.setValue('category', transaction.category);
+    transactionForm.setValue('transaction_date', transaction.transaction_date);
+    setShowTransactionForm(true);
+  };
+
+  const handleDeleteTransaction = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this transaction?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('personal_transactions')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchData();
+    } catch (error) {
+      console.error('Error deleting transaction:', error);
     }
   };
 
@@ -668,9 +719,11 @@ export default function PersonalSpace() {
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Partner</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">From</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">To</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -690,16 +743,32 @@ export default function PersonalSpace() {
                               </span>
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-900">
-                              {transaction.from_partner_id === user?.id 
-                                ? transaction.to_partner.full_name 
-                                : transaction.from_partner.full_name
-                              }
+                              {transaction.from_partner.full_name}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900">
+                              {transaction.to_partner.full_name}
                             </td>
                             <td className="px-4 py-3 text-sm font-semibold text-gray-900">
                               ₹{transaction.amount.toLocaleString()}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-600">
                               {transaction.description || '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-500">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleEditTransaction(transaction)}
+                                  className="text-blue-600 hover:text-blue-800"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteTransaction(transaction.id)}
+                                  className="text-red-600 hover:text-red-800"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -873,20 +942,44 @@ export default function PersonalSpace() {
         <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Add Personal Transaction</h2>
-              <button onClick={() => setShowTransactionForm(false)} className="text-gray-400 hover:text-gray-600">
+              <h2 className="text-lg font-semibold text-gray-900">
+                {editingTransaction ? 'Edit Personal Transaction' : 'Add Personal Transaction'}
+              </h2>
+              <button 
+                onClick={() => {
+                  setShowTransactionForm(false);
+                  setEditingTransaction(null);
+                  transactionForm.reset();
+                }} 
+                className="text-gray-400 hover:text-gray-600"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <form onSubmit={transactionForm.handleSubmit(handleTransactionSubmit)} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Partner</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">From Partner</label>
+                <select
+                  {...transactionForm.register('from_partner_id', { required: true })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select partner</option>
+                  <option value={user?.id}>You</option>
+                  {partners.map((partner) => (
+                    <option key={partner.id} value={partner.id}>{partner.full_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">To Partner</label>
                 <select
                   {...transactionForm.register('to_partner_id', { required: true })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select partner</option>
+                  <option value={user?.id}>You</option>
                   {partners.map((partner) => (
                     <option key={partner.id} value={partner.id}>{partner.full_name}</option>
                   ))}
@@ -950,11 +1043,15 @@ export default function PersonalSpace() {
                   type="submit"
                   className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
                 >
-                  Add Transaction
+                  {editingTransaction ? 'Update Transaction' : 'Add Transaction'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowTransactionForm(false)}
+                  onClick={() => {
+                    setShowTransactionForm(false);
+                    setEditingTransaction(null);
+                    transactionForm.reset();
+                  }}
                   className="flex-1 bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 transition-colors"
                 >
                   Cancel
