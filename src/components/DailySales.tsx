@@ -99,12 +99,17 @@ export default function DailySales() {
   };
 
   const checkDateExists = async (date: string, excludeId?: string) => {
-    const { data } = await supabase
+    let query = supabase
       .from('daily_sales')
       .select('id')
-      .eq('date', date)
-      .neq('id', excludeId || '');
+      .eq('date', date);
     
+    // Only apply the neq filter if excludeId is provided and not empty
+    if (excludeId && excludeId.trim() !== '') {
+      query = query.neq('id', excludeId);
+    }
+    
+    const { data } = await query;
     return (data?.length || 0) > 0;
   };
 
