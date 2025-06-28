@@ -125,7 +125,15 @@ export default function Expenses() {
       }
 
       if (editingExpenseId) {
-        // Update existing expense (not handling partner change for simplicity)
+        // Fetch the original expense to get old amount and partner
+        const { data: oldExpense, error: fetchError } = await supabase
+          .from('expenses')
+          .select('amount, paid_by_partner_id')
+          .eq('id', editingExpenseId)
+          .single();
+        if (fetchError) throw fetchError;
+
+        // Update the expense
         const { error } = await supabase
           .from('expenses')
           .update({
@@ -133,11 +141,45 @@ export default function Expenses() {
             amount: data.amount,
             description: data.description,
             expense_date: data.expense_date,
-            receipt_url: data.receipt_url || null
+            receipt_url: data.receipt_url || null,
+            paid_by_partner_id: data.paid_by_partner_id
           })
           .eq('id', editingExpenseId);
-
         if (error) throw error;
+
+        // If partner or amount changed, adjust balances
+        if (oldExpense) {
+          // Add back old amount to old partner
+          if (oldExpense.paid_by_partner_id) {
+            const { data: oldPartner, error: oldPartnerError } = await supabase
+              .from('partners')
+              .select('current_balance')
+              .eq('id', oldExpense.paid_by_partner_id)
+              .single();
+            if (oldPartnerError) throw oldPartnerError;
+            const newOldBalance = (oldPartner?.current_balance || 0) + oldExpense.amount;
+            const { error: updateOldError } = await supabase
+              .from('partners')
+              .update({ current_balance: newOldBalance })
+              .eq('id', oldExpense.paid_by_partner_id);
+            if (updateOldError) throw updateOldError;
+          }
+          // Deduct new amount from new partner
+          if (data.paid_by_partner_id) {
+            const { data: newPartner, error: newPartnerError } = await supabase
+              .from('partners')
+              .select('current_balance')
+              .eq('id', data.paid_by_partner_id)
+              .single();
+            if (newPartnerError) throw newPartnerError;
+            const newNewBalance = (newPartner?.current_balance || 0) - data.amount;
+            const { error: updateNewError } = await supabase
+              .from('partners')
+              .update({ current_balance: newNewBalance })
+              .eq('id', data.paid_by_partner_id);
+            if (updateNewError) throw updateNewError;
+          }
+        }
         setEditingExpenseId(null);
       } else {
         // Create new expense
@@ -223,17 +265,42 @@ export default function Expenses() {
     if (!confirm('Are you sure you want to delete this expense?')) return;
 
     try {
+      // Fetch the expense to get amount and partner
+      const { data: expense, error: fetchError } = await supabase
+        .from('expenses')
+        .select('amount, paid_by_partner_id')
+        .eq('id', id)
+        .single();
+      if (fetchError) throw fetchError;
+
+      // Add back the amount to the partner's balance
+      if (expense && expense.paid_by_partner_id) {
+        const { data: partner, error: partnerError } = await supabase
+          .from('partners')
+          .select('current_balance')
+          .eq('id', expense.paid_by_partner_id)
+          .single();
+        if (partnerError) throw partnerError;
+        const newBalance = (partner?.current_balance || 0) + expense.amount;
+        const { error: updateError } = await supabase
+          .from('partners')
+          .update({ current_balance: newBalance })
+          .eq('id', expense.paid_by_partner_id);
+        if (updateError) throw updateError;
+      }
+
+      // Now delete the expense
       const { error } = await supabase
         .from('expenses')
         .delete()
         .eq('id', id);
-
       if (error) throw error;
       fetchData();
     } catch (error) {
       console.error('Error deleting expense:', error);
     }
   };
+
 
   const handleDeleteCategory = async (id: string) => {
     if (!confirm('Are you sure you want to delete this category? This will affect all related expenses.')) return;
