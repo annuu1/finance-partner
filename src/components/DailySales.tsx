@@ -3,7 +3,13 @@ import { useForm } from 'react-hook-form';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { format } from 'date-fns';
-import { Plus, Edit2, Trash2, Save, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, User, Users } from 'lucide-react';
+
+interface Partner {
+  id: string;
+  full_name: string;
+  email: string;
+}
 
 interface SalesEntry {
   id: string;
@@ -12,7 +18,9 @@ interface SalesEntry {
   online_amount: number;
   cash_amount: number;
   notes: string | null;
+  partner_id: string | null;
   created_at: string;
+  partner?: { full_name: string };
 }
 
 interface SalesForm {
@@ -21,11 +29,13 @@ interface SalesForm {
   online_amount: number;
   cash_amount: number;
   notes: string;
+  partner_id: string;
 }
 
 export default function DailySales() {
   const { user } = useAuth();
   const [sales, setSales] = useState<SalesEntry[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -36,12 +46,13 @@ export default function DailySales() {
       total_amount: 0,
       online_amount: 0,
       cash_amount: 0,
-      notes: ''
+      notes: '',
+      partner_id: ''
     }
   });
 
   useEffect(() => {
-    fetchSales();
+    fetchData();
   }, []);
 
   // Watch for changes in online and cash amounts to calculate total
@@ -57,17 +68,31 @@ export default function DailySales() {
     return () => subscription.unsubscribe();
   }, [form]);
 
-  const fetchSales = async () => {
+  const fetchData = async () => {
     try {
-      const { data, error } = await supabase
+      // Fetch partners
+      const { data: partnersData, error: partnersError } = await supabase
+        .from('partners')
+        .select('id, full_name, email')
+        .order('full_name');
+
+      if (partnersError) throw partnersError;
+
+      // Fetch sales with partner information
+      const { data: salesData, error: salesError } = await supabase
         .from('daily_sales')
-        .select('*')
+        .select(`
+          *,
+          partner:partners(full_name)
+        `)
         .order('date', { ascending: false });
 
-      if (error) throw error;
-      setSales(data || []);
+      if (salesError) throw salesError;
+
+      setPartners(partnersData || []);
+      setSales(salesData || []);
     } catch (error) {
-      console.error('Error fetching sales:', error);
+      console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
@@ -92,6 +117,12 @@ export default function DailySales() {
       const cashAmount = parseFloat(data.cash_amount.toString()) || 0;
       const totalAmount = onlineAmount + cashAmount;
 
+      // Validate partner selection
+      if (!data.partner_id) {
+        alert('Please select a partner responsible for this sale.');
+        return;
+      }
+
       // Check for duplicate date
       const dateExists = await checkDateExists(data.date, editingId);
       if (dateExists) {
@@ -108,7 +139,8 @@ export default function DailySales() {
             total_amount: totalAmount,
             online_amount: onlineAmount,
             cash_amount: cashAmount,
-            notes: data.notes || null
+            notes: data.notes || null,
+            partner_id: data.partner_id
           })
           .eq('id', editingId);
 
@@ -124,6 +156,7 @@ export default function DailySales() {
             online_amount: onlineAmount,
             cash_amount: cashAmount,
             notes: data.notes || null,
+            partner_id: data.partner_id,
             created_by: user.id
           });
 
@@ -135,10 +168,11 @@ export default function DailySales() {
         total_amount: 0,
         online_amount: 0,
         cash_amount: 0,
-        notes: ''
+        notes: '',
+        partner_id: ''
       });
       setShowForm(false);
-      fetchSales();
+      fetchData();
     } catch (error) {
       console.error('Error saving sales entry:', error);
       alert('Error saving sales entry. Please try again.');
@@ -151,6 +185,7 @@ export default function DailySales() {
     form.setValue('online_amount', sale.online_amount);
     form.setValue('cash_amount', sale.cash_amount);
     form.setValue('notes', sale.notes || '');
+    form.setValue('partner_id', sale.partner_id || '');
     setEditingId(sale.id);
     setShowForm(true);
   };
@@ -165,7 +200,7 @@ export default function DailySales() {
         .eq('id', id);
 
       if (error) throw error;
-      fetchSales();
+      fetchData();
     } catch (error) {
       console.error('Error deleting sales entry:', error);
     }
@@ -177,11 +212,26 @@ export default function DailySales() {
       total_amount: 0,
       online_amount: 0,
       cash_amount: 0,
-      notes: ''
+      notes: '',
+      partner_id: ''
     });
     setShowForm(false);
     setEditingId(null);
   };
+
+  // Calculate partner-wise sales summary
+  const partnerSummary = partners.map(partner => {
+    const partnerSales = sales.filter(sale => sale.partner_id === partner.id);
+    const totalSales = partnerSales.reduce((sum, sale) => sum + sale.total_amount, 0);
+    const salesCount = partnerSales.length;
+    return {
+      ...partner,
+      totalSales,
+      salesCount
+    };
+  });
+
+  const totalSales = sales.reduce((sum, sale) => sum + sale.total_amount, 0);
 
   if (loading) {
     return (
@@ -203,6 +253,43 @@ export default function DailySales() {
           <Plus className="h-4 w-4" />
           Add Sales Entry
         </button>
+      </div>
+
+      {/* Partner Sales Summary */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Users className="h-5 w-5 text-blue-600" />
+          <h2 className="text-lg font-semibold text-gray-900">Partner Sales Summary</h2>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+          {partnerSummary.map((partner) => (
+            <div key={partner.id} className="border border-gray-200 rounded-lg p-4">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                  <User className="h-4 w-4 text-blue-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-medium text-gray-900">{partner.full_name}</h3>
+                  <p className="text-sm text-gray-500">{partner.salesCount} sales</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-bold text-green-600">₹{partner.totalSales.toLocaleString()}</p>
+                <p className="text-xs text-gray-500">
+                  {totalSales > 0 ? ((partner.totalSales / totalSales) * 100).toFixed(1) : 0}% of total
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-gray-200 pt-4">
+          <div className="flex justify-between items-center">
+            <span className="text-lg font-semibold text-gray-900">Total Sales</span>
+            <span className="text-xl font-bold text-blue-600">₹{totalSales.toLocaleString()}</span>
+          </div>
+        </div>
       </div>
 
       {/* Form Modal */}
@@ -231,6 +318,26 @@ export default function DailySales() {
                   {...form.register('date', { required: true })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Partner Responsible *
+                </label>
+                <select
+                  {...form.register('partner_id', { required: true })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select partner</option>
+                  {partners.map((partner) => (
+                    <option key={partner.id} value={partner.id}>
+                      {partner.full_name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Choose the partner who made this sale
+                </p>
               </div>
 
               <div>
@@ -330,6 +437,9 @@ export default function DailySales() {
                     Date
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Partner
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Total Amount
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -351,6 +461,16 @@ export default function DailySales() {
                   <tr key={sale.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {format(new Date(sale.date), 'MMM dd, yyyy')}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
+                          <User className="h-3 w-3 text-blue-600" />
+                        </div>
+                        <span className="text-sm font-medium text-gray-900">
+                          {sale.partner?.full_name || 'Unknown'}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
                       ₹{sale.total_amount.toLocaleString()}

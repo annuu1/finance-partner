@@ -23,7 +23,8 @@ import {
   Receipt,
   Calendar,
   ArrowUpIcon,
-  ArrowDownIcon
+  ArrowDownIcon,
+  User
 } from 'lucide-react';
 
 interface DashboardData {
@@ -34,6 +35,7 @@ interface DashboardData {
   salesTrend: Array<{ date: string; amount: number; online: number; cash: number }>;
   expenseBreakdown: Array<{ name: string; value: number; color: string }>;
   partnerBalances: Array<{ name: string; balance: number }>;
+  partnerSales: Array<{ name: string; sales: number; color: string }>;
   recentTransactions: Array<{ id: string; type: string; amount: number; description: string; date: string }>;
 }
 
@@ -55,10 +57,13 @@ export default function Dashboard() {
     const endDate = endOfDay(new Date());
 
     try {
-      // Fetch sales data
+      // Fetch sales data with partner information
       const { data: salesData } = await supabase
         .from('daily_sales')
-        .select('*')
+        .select(`
+          *,
+          partner:partners(full_name)
+        `)
         .gte('date', format(startDate, 'yyyy-MM-dd'))
         .lte('date', format(endDate, 'yyyy-MM-dd'))
         .order('date', { ascending: true });
@@ -115,6 +120,19 @@ export default function Dashboard() {
         balance: partner.current_balance
       })) || [];
 
+      // Process partner sales breakdown
+      const partnerSalesMap = salesData?.reduce((acc: Record<string, number>, sale: any) => {
+        const partnerName = sale.partner?.full_name || 'Unknown';
+        acc[partnerName] = (acc[partnerName] || 0) + sale.total_amount;
+        return acc;
+      }, {}) || {};
+
+      const partnerSales = Object.entries(partnerSalesMap).map(([name, sales], index) => ({
+        name,
+        sales: sales as number,
+        color: colors[index % colors.length]
+      }));
+
       // Process recent transactions
       const recentTransactions = transactionsData?.map(transaction => ({
         id: transaction.id,
@@ -132,6 +150,7 @@ export default function Dashboard() {
         salesTrend,
         expenseBreakdown,
         partnerBalances,
+        partnerSales,
         recentTransactions
       });
     } catch (error) {
@@ -268,29 +287,54 @@ export default function Dashboard() {
       </div>
 
       {/* Bottom Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Expense Breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Partner Sales Distribution */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Expense Breakdown</h3>
-          {data.expenseBreakdown.length > 0 ? (
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Partner Sales</h3>
+          {data.partnerSales.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie
-                  data={data.expenseBreakdown}
+                  data={data.partnerSales}
                   cx="50%"
                   cy="50%"
                   outerRadius={80}
                   fill="#8884d8"
-                  dataKey="value"
-                  label={(entry) => `${entry.name}: ₹${entry.value.toLocaleString()}`}
+                  dataKey="sales"
+                  label={(entry) => `${entry.name}: ₹${entry.sales.toLocaleString()}`}
                 >
-                  {data.expenseBreakdown.map((entry, index) => (
+                  {data.partnerSales.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(value) => [`₹${Number(value).toLocaleString()}`, '']} />
               </PieChart>
             </ResponsiveContainer>
+          ) : (
+            <p className="text-gray-500 text-center py-8">No sales data available</p>
+          )}
+        </div>
+
+        {/* Expense Breakdown */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Expense Breakdown</h3>
+          {data.expenseBreakdown.length > 0 ? (
+            <div className="space-y-2">
+              {data.expenseBreakdown.slice(0, 5).map((expense, index) => (
+                <div key={index} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ backgroundColor: expense.color }}
+                    ></div>
+                    <span className="text-sm text-gray-600">{expense.name}</span>
+                  </div>
+                  <span className="text-sm font-medium text-gray-900">
+                    ₹{expense.value.toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
           ) : (
             <p className="text-gray-500 text-center py-8">No expenses recorded</p>
           )}
@@ -302,7 +346,12 @@ export default function Dashboard() {
           <div className="space-y-3">
             {data.partnerBalances.map((partner, index) => (
               <div key={index} className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-900">{partner.name}</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
+                    <User className="h-3 w-3 text-blue-600" />
+                  </div>
+                  <span className="text-sm font-medium text-gray-900">{partner.name}</span>
+                </div>
                 <span className={`text-sm font-semibold ${
                   partner.balance >= 0 ? 'text-green-600' : 'text-red-600'
                 }`}>
