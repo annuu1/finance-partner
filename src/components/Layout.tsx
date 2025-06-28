@@ -9,7 +9,9 @@ import {
   LogOut,
   Menu,
   X,
-  Heart
+  Heart,
+  User,
+  MessageCircle
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -29,6 +31,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
     { name: 'Partners', id: 'partners', icon: Users },
     { name: 'Expenses', id: 'expenses', icon: Receipt },
     { name: 'Personal Space', id: 'personal', icon: Heart },
+    { name: 'Personal Chat', id: 'chat', icon: MessageCircle },
     { name: 'Reports', id: 'reports', icon: Settings },
   ];
 
@@ -98,13 +101,29 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
               <p className="text-xs text-gray-500">Business Partner</p>
             </div>
           </div>
-          <button
-            onClick={signOut}
-            className="w-full flex items-center px-3 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-white hover:text-gray-900 transition-colors"
-          >
-            <LogOut className="h-4 w-4 mr-3 flex-shrink-0" />
-            <span>Sign Out</span>
-          </button>
+          <div className="space-y-1">
+            <button
+              onClick={() => {
+                onPageChange('profile');
+                setSidebarOpen(false);
+              }}
+              className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                currentPage === 'profile'
+                  ? 'bg-blue-50 text-blue-700'
+                  : 'text-gray-600 hover:bg-white hover:text-gray-900'
+              }`}
+            >
+              <User className="h-4 w-4 mr-3 flex-shrink-0" />
+              <span>Profile Settings</span>
+            </button>
+            <button
+              onClick={signOut}
+              className="w-full flex items-center px-3 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-white hover:text-gray-900 transition-colors"
+            >
+              <LogOut className="h-4 w-4 mr-3 flex-shrink-0" />
+              <span>Sign Out</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -121,7 +140,8 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
                 <Menu className="h-5 w-5" />
               </button>
               <h2 className="ml-2 lg:ml-0 text-lg font-semibold text-gray-900 capitalize">
-                {navigation.find(item => item.id === currentPage)?.name || 'Dashboard'}
+                {navigation.find(item => item.id === currentPage)?.name || 
+                 (currentPage === 'profile' ? 'Profile Settings' : 'Dashboard')}
               </h2>
             </div>
             

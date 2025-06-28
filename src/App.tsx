@@ -8,6 +8,8 @@ import Partners from './components/Partners';
 import Expenses from './components/Expenses';
 import Reports from './components/Reports';
 import PersonalSpace from './components/PersonalSpace';
+import UserProfile from './components/UserProfile';
+import PersonalChat from './components/PersonalChat';
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -39,6 +41,10 @@ function AppContent() {
         return <Reports />;
       case 'personal':
         return <PersonalSpace />;
+      case 'profile':
+        return <UserProfile />;
+      case 'chat':
+        return <PersonalChat />;
       default:
         return <Dashboard />;
     }
