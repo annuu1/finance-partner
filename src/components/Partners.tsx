@@ -16,7 +16,10 @@ import {
   Users,
   UserPlus,
   Eye,
-  EyeOff
+  EyeOff,
+  CheckCircle,
+  XCircle,
+  AlertCircle
 } from 'lucide-react';
 
 interface Partner {
@@ -35,6 +38,10 @@ interface Transaction {
   amount: number;
   description: string | null;
   transaction_date: string;
+  status: 'pending' | 'approved' | 'rejected';
+  approved_by: string | null;
+  approved_at: string | null;
+  rejection_reason: string | null;
   created_at: string;
   from_partner: { full_name: string };
   to_partner: { full_name: string };
@@ -97,7 +104,7 @@ export default function Partners() {
 
       if (partnersError) throw partnersError;
 
-      // Fetch transactions
+      // Fetch business transactions (partner_transactions table)
       const { data: transactionsData, error: transactionsError } = await supabase
         .from('partner_transactions')
         .select(`
@@ -260,7 +267,7 @@ export default function Partners() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Partner Management</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Business Partner Management</h1>
         <div className="flex gap-3">
           <button
             onClick={() => setShowPartnerForm(true)}
@@ -274,7 +281,7 @@ export default function Partners() {
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
           >
             <ArrowUpDown className="h-4 w-4" />
-            New Transaction
+            New Business Transaction
           </button>
         </div>
       </div>
@@ -296,7 +303,7 @@ export default function Partners() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Total Balance</p>
+              <p className="text-sm font-medium text-gray-600">Total Business Balance</p>
               <p className="text-2xl font-bold text-gray-900">₹{totalBalance.toLocaleString()}</p>
             </div>
             <div className="bg-green-50 p-3 rounded-full">
@@ -371,7 +378,7 @@ export default function Partners() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Initial Balance (₹)
+                  Initial Business Balance (₹)
                 </label>
                 <input
                   type="number"
@@ -411,8 +418,7 @@ export default function Partners() {
 
               <div className="bg-blue-50 p-3 rounded-md">
                 <p className="text-sm text-blue-800">
-                  <strong>Note:</strong> The new partner will receive login credentials to access the system. 
-                  Make sure to share the email and password with them securely.
+                  <strong>Note:</strong> This creates a business partner account with the specified initial balance from sales revenue.
                 </p>
               </div>
 
@@ -442,7 +448,7 @@ export default function Partners() {
         <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">New Transaction</h2>
+              <h2 className="text-lg font-semibold text-gray-900">New Business Transaction</h2>
               <button
                 onClick={() => setShowTransactionForm(false)}
                 className="text-gray-400 hover:text-gray-600"
@@ -517,8 +523,14 @@ export default function Partners() {
                   {...transactionForm.register('description')}
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Transaction description..."
+                  placeholder="Business transaction description..."
                 />
+              </div>
+
+              <div className="bg-blue-50 p-3 rounded-md">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> This is a business transaction that will immediately update partner balances.
+                </p>
               </div>
 
               <div className="flex gap-3">
@@ -545,7 +557,8 @@ export default function Partners() {
       {/* Partners List */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Partner Balances</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Business Partner Balances</h2>
+          <p className="text-sm text-gray-600">Current balances from sales revenue and business transactions</p>
         </div>
 
         <div className="overflow-x-auto">
@@ -559,7 +572,7 @@ export default function Partners() {
                   Email
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Current Balance
+                  Business Balance
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Joined
@@ -613,15 +626,16 @@ export default function Partners() {
         </div>
       </div>
 
-      {/* Recent Transactions */}
+      {/* Recent Business Transactions */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Recent Transactions</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Recent Business Transactions</h2>
+          <p className="text-sm text-gray-600">Business-related money transfers between partners</p>
         </div>
 
         {transactions.length === 0 ? (
           <div className="p-6 text-center text-gray-500">
-            No transactions found. Create your first transaction to get started.
+            No business transactions found. Create your first transaction to get started.
           </div>
         ) : (
           <div className="overflow-x-auto">

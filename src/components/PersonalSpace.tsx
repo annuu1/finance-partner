@@ -112,6 +112,7 @@ interface TransactionForm {
 }
 
 interface RuleForm {
+  from_partner_id: string;
   to_partner_id: string;
   amount: number;
   transaction_type: 'borrow' | 'lend' | 'payment' | 'transfer';
@@ -165,6 +166,7 @@ export default function PersonalSpace() {
 
   const ruleForm = useForm<RuleForm>({
     defaultValues: {
+      from_partner_id: '',
       to_partner_id: '',
       amount: 0,
       transaction_type: 'payment',
@@ -308,7 +310,7 @@ export default function PersonalSpace() {
     }
   };
 
-  const handleTransactionApproval = async (transactionId: string, action: 'approve' | 'reject', rejectionReason?: string) => {
+  const handleTransactionAction = async (transactionId: string, action: 'approve' | 'reject', rejectionReason?: string) => {
     if (!user) return;
 
     try {
@@ -327,10 +329,9 @@ export default function PersonalSpace() {
         .eq('id', transactionId);
 
       if (error) throw error;
-
       fetchData();
     } catch (error) {
-      console.error('Error updating transaction status:', error);
+      console.error('Error updating transaction:', error);
       alert('Error updating transaction. Please try again.');
     }
   };
@@ -344,7 +345,7 @@ export default function PersonalSpace() {
       const { error } = await supabase
         .from('automated_transaction_rules')
         .insert({
-          from_partner_id: user.id,
+          from_partner_id: data.from_partner_id,
           to_partner_id: data.to_partner_id,
           amount: data.amount,
           transaction_type: data.transaction_type,
@@ -520,7 +521,7 @@ export default function PersonalSpace() {
   );
 
   const unreadMessages = messages.filter(msg => !msg.is_read && msg.receiver_id === user?.id).length;
-  const pendingApprovals = personalTransactions.filter(tx => tx.status === 'pending' && tx.to_partner_id === user?.id).length;
+  const pendingTransactions = personalTransactions.filter(t => t.status === 'pending' && t.to_partner_id === user?.id).length;
 
   if (loading) {
     return (
@@ -604,11 +605,11 @@ export default function PersonalSpace() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Active Rules</p>
-              <p className="text-2xl font-bold text-blue-600">{automatedRules.filter(r => r.is_active).length}</p>
+              <p className="text-sm font-medium text-gray-600">Pending Approvals</p>
+              <p className="text-2xl font-bold text-orange-600">{pendingTransactions}</p>
             </div>
-            <div className="bg-blue-50 p-3 rounded-full">
-              <Clock className="h-6 w-6 text-blue-600" />
+            <div className="bg-orange-50 p-3 rounded-full">
+              <Clock className="h-6 w-6 text-orange-600" />
             </div>
           </div>
         </div>
@@ -654,9 +655,9 @@ export default function PersonalSpace() {
                       {unreadMessages}
                     </span>
                   )}
-                  {tab.id === 'transactions' && pendingApprovals > 0 && (
+                  {tab.id === 'transactions' && pendingTransactions > 0 && (
                     <span className="bg-orange-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] h-5 flex items-center justify-center">
-                      {pendingApprovals}
+                      {pendingTransactions}
                     </span>
                   )}
                 </button>
@@ -705,73 +706,103 @@ export default function PersonalSpace() {
                 {personalTransactions.length === 0 ? (
                   <p className="text-gray-500 text-center py-8">No personal transactions found.</p>
                 ) : (
-                  <div className="space-y-4">
-                    {personalTransactions.map((transaction) => (
-                      <div 
-                        key={transaction.id} 
-                        className={`border rounded-lg p-4 ${
-                          transaction.status === 'pending' ? 'border-orange-200 bg-orange-50' :
-                          transaction.status === 'approved' ? 'border-green-200 bg-green-50' :
-                          'border-red-200 bg-red-50'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                transaction.status === 'pending' ? 'bg-orange-100 text-orange-800' :
-                                transaction.status === 'approved' ? 'bg-green-100 text-green-800' :
-                                'bg-red-100 text-red-800'
+                  <div className="space-y-3">
+                    {personalTransactions.map((transaction) => {
+                      const isFromCurrentUser = transaction.from_partner_id === user?.id;
+                      const isToCurrentUser = transaction.to_partner_id === user?.id;
+                      const canApprove = isToCurrentUser && transaction.status === 'pending';
+                      
+                      return (
+                        <div 
+                          key={transaction.id} 
+                          className={`border rounded-lg p-4 ${
+                            transaction.status === 'pending' ? 'border-orange-200 bg-orange-50' :
+                            transaction.status === 'approved' ? 'border-green-200 bg-green-50' :
+                            'border-red-200 bg-red-50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                isFromCurrentUser ? 'bg-red-100' : 'bg-green-100'
                               }`}>
-                                {transaction.status}
-                              </span>
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                transaction.transaction_type === 'borrow' ? 'bg-red-100 text-red-800' :
-                                transaction.transaction_type === 'lend' ? 'bg-green-100 text-green-800' :
-                                transaction.transaction_type === 'payment' ? 'bg-blue-100 text-blue-800' :
-                                'bg-gray-100 text-gray-800'
-                              }`}>
-                                {transaction.transaction_type}
-                              </span>
+                                {isFromCurrentUser ? (
+                                  <TrendingDown className="h-4 w-4 text-red-600" />
+                                ) : (
+                                  <TrendingUp className="h-4 w-4 text-green-600" />
+                                )}
+                              </div>
+                              <div>
+                                <p className="font-medium text-gray-900">
+                                  {isFromCurrentUser 
+                                    ? `To ${transaction.to_partner.full_name}` 
+                                    : `From ${transaction.from_partner.full_name}`
+                                  }
+                                </p>
+                                <p className="text-sm text-gray-600">
+                                  {transaction.transaction_type} • {format(new Date(transaction.transaction_date), 'MMM dd, yyyy')}
+                                </p>
+                              </div>
                             </div>
-                            <div className="text-sm text-gray-600 mb-2">
-                              <p>
-                                <strong>{transaction.from_partner.full_name}</strong> → <strong>{transaction.to_partner.full_name}</strong>
+                            <div className="text-right">
+                              <p className={`font-semibold ${
+                                isFromCurrentUser ? 'text-red-600' : 'text-green-600'
+                              }`}>
+                                {isFromCurrentUser ? '-' : '+'}₹{transaction.amount.toLocaleString()}
                               </p>
-                              <p>Amount: ₹{transaction.amount.toLocaleString()}</p>
-                              <p>Date: {format(new Date(transaction.transaction_date), 'MMM dd, yyyy')}</p>
-                              {transaction.description && <p>Description: {transaction.description}</p>}
-                              {transaction.rejection_reason && (
-                                <p className="text-red-600">Rejection reason: {transaction.rejection_reason}</p>
-                              )}
+                              <div className="flex items-center gap-1">
+                                {transaction.status === 'pending' && (
+                                  <AlertCircle className="h-4 w-4 text-orange-500" />
+                                )}
+                                {transaction.status === 'approved' && (
+                                  <CheckCircle className="h-4 w-4 text-green-500" />
+                                )}
+                                {transaction.status === 'rejected' && (
+                                  <XCircle className="h-4 w-4 text-red-500" />
+                                )}
+                                <span className={`text-xs font-medium ${
+                                  transaction.status === 'pending' ? 'text-orange-600' :
+                                  transaction.status === 'approved' ? 'text-green-600' :
+                                  'text-red-600'
+                                }`}>
+                                  {transaction.status.charAt(0).toUpperCase() + transaction.status.slice(1)}
+                                </span>
+                              </div>
                             </div>
                           </div>
                           
-                          {/* Action buttons for pending transactions */}
-                          {transaction.status === 'pending' && transaction.to_partner_id === user?.id && (
-                            <div className="flex items-center gap-2 ml-4">
+                          {transaction.description && (
+                            <p className="text-sm text-gray-600 mb-2">{transaction.description}</p>
+                          )}
+                          
+                          {canApprove && (
+                            <div className="flex gap-2 mt-3">
                               <button
-                                onClick={() => handleTransactionApproval(transaction.id, 'approve')}
-                                className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 flex items-center gap-1"
+                                onClick={() => handleTransactionAction(transaction.id, 'approve')}
+                                className="flex-1 bg-green-600 text-white py-2 px-3 rounded text-sm hover:bg-green-700 transition-colors"
                               >
-                                <CheckCircle className="h-3 w-3" />
                                 Approve
                               </button>
                               <button
                                 onClick={() => {
                                   const reason = prompt('Rejection reason (optional):');
-                                  handleTransactionApproval(transaction.id, 'reject', reason || undefined);
+                                  handleTransactionAction(transaction.id, 'reject', reason || undefined);
                                 }}
-                                className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 flex items-center gap-1"
+                                className="flex-1 bg-red-600 text-white py-2 px-3 rounded text-sm hover:bg-red-700 transition-colors"
                               >
-                                <XCircle className="h-3 w-3" />
                                 Reject
                               </button>
                             </div>
                           )}
+                          
+                          {transaction.status === 'rejected' && transaction.rejection_reason && (
+                            <div className="mt-2 p-2 bg-red-100 rounded text-sm text-red-800">
+                              <strong>Rejection reason:</strong> {transaction.rejection_reason}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -954,7 +985,7 @@ export default function PersonalSpace() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select partner</option>
-                  <option value={user?.id}>You</option>
+                  <option value={user?.id || ''}>You</option>
                   {partners.map((partner) => (
                     <option key={partner.id} value={partner.id}>{partner.full_name}</option>
                   ))}
@@ -968,7 +999,7 @@ export default function PersonalSpace() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select partner</option>
-                  <option value={user?.id}>You</option>
+                  <option value={user?.id || ''}>You</option>
                   {partners.map((partner) => (
                     <option key={partner.id} value={partner.id}>{partner.full_name}</option>
                   ))}
@@ -1028,12 +1059,9 @@ export default function PersonalSpace() {
               </div>
 
               <div className="bg-blue-50 p-3 rounded-md">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 text-blue-600" />
-                  <p className="text-sm text-blue-800">
-                    This transaction will require approval from the receiving partner before it affects balances.
-                  </p>
-                </div>
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> This transaction will be sent for approval to the receiving partner.
+                </p>
               </div>
 
               <div className="flex gap-3">
@@ -1069,12 +1097,27 @@ export default function PersonalSpace() {
 
             <form onSubmit={ruleForm.handleSubmit(handleRuleSubmit)} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Partner</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">From Partner</label>
+                <select
+                  {...ruleForm.register('from_partner_id', { required: true })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select partner</option>
+                  <option value={user?.id || ''}>You</option>
+                  {partners.map((partner) => (
+                    <option key={partner.id} value={partner.id}>{partner.full_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">To Partner</label>
                 <select
                   {...ruleForm.register('to_partner_id', { required: true })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select partner</option>
+                  <option value={user?.id || ''}>You</option>
                   {partners.map((partner) => (
                     <option key={partner.id} value={partner.id}>{partner.full_name}</option>
                   ))}
@@ -1142,6 +1185,16 @@ export default function PersonalSpace() {
                   {...ruleForm.register('description', { required: true })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="e.g., Monthly rent payment"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <input
+                  type="text"
+                  {...ruleForm.register('category')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g., rent, utilities"
                 />
               </div>
 
