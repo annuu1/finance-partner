@@ -19,7 +19,9 @@ import {
   EyeOff,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Clock,
+  Bell
 } from 'lucide-react';
 
 interface Partner {
@@ -66,10 +68,12 @@ export default function Partners() {
   const { user } = useAuth();
   const [partners, setPartners] = useState<Partner[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [pendingTransactions, setPendingTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showTransactionForm, setShowTransactionForm] = useState(false);
   const [showPartnerForm, setShowPartnerForm] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [processingApproval, setProcessingApproval] = useState<string | null>(null);
   
   const transactionForm = useForm<TransactionForm>({
     defaultValues: {
@@ -117,8 +121,23 @@ export default function Partners() {
 
       if (transactionsError) throw transactionsError;
 
+      // Fetch pending transactions for current user
+      const { data: pendingData, error: pendingError } = await supabase
+        .from('partner_transactions')
+        .select(`
+          *,
+          from_partner:partners!from_partner_id(full_name),
+          to_partner:partners!to_partner_id(full_name)
+        `)
+        .eq('to_partner_id', user?.id)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
+
+      if (pendingError) throw pendingError;
+
       setPartners(partnersData || []);
       setTransactions(transactionsData || []);
+      setPendingTransactions(pendingData || []);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -196,7 +215,8 @@ export default function Partners() {
           to_partner_id: data.to_partner_id,
           amount: data.amount,
           description: data.description || null,
-          transaction_date: data.transaction_date
+          transaction_date: data.transaction_date,
+          status: 'pending' // All new transactions start as pending
         });
 
       if (error) throw error;
@@ -210,9 +230,48 @@ export default function Partners() {
       });
       setShowTransactionForm(false);
       fetchData();
+      
+      alert('Transaction created and sent for approval!');
     } catch (error) {
       console.error('Error creating transaction:', error);
       alert('Error creating transaction. Please try again.');
+    }
+  };
+
+  const handleApproveTransaction = async (transactionId: string, action: 'approve' | 'reject', rejectionReason?: string) => {
+    if (!user) return;
+
+    setProcessingApproval(transactionId);
+
+    try {
+      const updateData: any = {
+        status: action === 'approve' ? 'approved' : 'rejected',
+        approved_by: user.id
+      };
+
+      if (action === 'reject' && rejectionReason) {
+        updateData.rejection_reason = rejectionReason;
+      }
+
+      const { error } = await supabase
+        .from('partner_transactions')
+        .update(updateData)
+        .eq('id', transactionId);
+
+      if (error) throw error;
+
+      fetchData();
+      
+      if (action === 'approve') {
+        alert('Transaction approved successfully!');
+      } else {
+        alert('Transaction rejected.');
+      }
+    } catch (error) {
+      console.error('Error updating transaction:', error);
+      alert('Error processing transaction. Please try again.');
+    } finally {
+      setProcessingApproval(null);
     }
   };
 
@@ -267,7 +326,17 @@ export default function Partners() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Business Partner Management</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Business Partner Management</h1>
+          {pendingTransactions.length > 0 && (
+            <div className="flex items-center gap-2 mt-1">
+              <Bell className="h-4 w-4 text-orange-500" />
+              <span className="text-sm text-orange-600">
+                {pendingTransactions.length} transaction{pendingTransactions.length > 1 ? 's' : ''} awaiting your approval
+              </span>
+            </div>
+          )}
+        </div>
         <div className="flex gap-3">
           <button
             onClick={() => setShowPartnerForm(true)}
@@ -285,6 +354,64 @@ export default function Partners() {
           </button>
         </div>
       </div>
+
+      {/* Pending Approvals */}
+      {pendingTransactions.length > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertCircle className="h-5 w-5 text-orange-600" />
+            <h2 className="text-lg font-semibold text-orange-900">Pending Approvals</h2>
+          </div>
+          
+          <div className="space-y-3">
+            {pendingTransactions.map((transaction) => (
+              <div key={transaction.id} className="bg-white border border-orange-200 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-gray-900">
+                        {transaction.from_partner.full_name}
+                      </span>
+                      <ArrowUpDown className="h-4 w-4 text-gray-400" />
+                      <span className="font-medium text-gray-900">You</span>
+                      <span className="text-lg font-bold text-blue-600">
+                        ₹{transaction.amount.toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      {transaction.description || 'No description'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {format(new Date(transaction.created_at), 'MMM dd, yyyy HH:mm')}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleApproveTransaction(transaction.id, 'approve')}
+                      disabled={processingApproval === transaction.id}
+                      className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <CheckCircle className="h-3 w-3" />
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => {
+                        const reason = prompt('Rejection reason (optional):');
+                        handleApproveTransaction(transaction.id, 'reject', reason || undefined);
+                      }}
+                      disabled={processingApproval === transaction.id}
+                      className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <XCircle className="h-3 w-3" />
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -327,11 +454,11 @@ export default function Partners() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Negative Balances</p>
-              <p className="text-2xl font-bold text-red-600">{negativeBalances.length}</p>
+              <p className="text-sm font-medium text-gray-600">Pending Approvals</p>
+              <p className="text-2xl font-bold text-orange-600">{pendingTransactions.length}</p>
             </div>
-            <div className="bg-red-50 p-3 rounded-full">
-              <TrendingDown className="h-6 w-6 text-red-600" />
+            <div className="bg-orange-50 p-3 rounded-full">
+              <Clock className="h-6 w-6 text-orange-600" />
             </div>
           </div>
         </div>
@@ -527,9 +654,9 @@ export default function Partners() {
                 />
               </div>
 
-              <div className="bg-blue-50 p-3 rounded-md">
-                <p className="text-sm text-blue-800">
-                  <strong>Note:</strong> This is a business transaction that will immediately update partner balances.
+              <div className="bg-orange-50 p-3 rounded-md">
+                <p className="text-sm text-orange-800">
+                  <strong>Note:</strong> This transaction will require approval from the receiving partner before the balances are updated.
                 </p>
               </div>
 
@@ -558,7 +685,7 @@ export default function Partners() {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <div className="px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">Business Partner Balances</h2>
-          <p className="text-sm text-gray-600">Current balances from sales revenue and business transactions</p>
+          <p className="text-sm text-gray-600">Current balances from sales revenue and approved business transactions</p>
         </div>
 
         <div className="overflow-x-auto">
@@ -655,6 +782,9 @@ export default function Partners() {
                     Amount
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Description
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -676,6 +806,18 @@ export default function Partners() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-blue-600">
                       ₹{transaction.amount.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        transaction.status === 'approved' ? 'bg-green-100 text-green-800' :
+                        transaction.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                        'bg-orange-100 text-orange-800'
+                      }`}>
+                        {transaction.status === 'approved' && <CheckCircle className="h-3 w-3 mr-1" />}
+                        {transaction.status === 'rejected' && <XCircle className="h-3 w-3 mr-1" />}
+                        {transaction.status === 'pending' && <Clock className="h-3 w-3 mr-1" />}
+                        {transaction.status}
+                      </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">
                       {transaction.description || '-'}
