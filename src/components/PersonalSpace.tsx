@@ -21,7 +21,9 @@ import {
   Calendar,
   Repeat,
   User,
-  Users
+  Users,
+  ArrowUpRight,
+  ArrowDownLeft
 } from 'lucide-react';
 
 interface PersonalTransaction {
@@ -105,6 +107,7 @@ interface TransactionForm {
 }
 
 interface RuleForm {
+  from_partner_id: string;
   to_partner_id: string;
   amount: number;
   transaction_type: 'borrow' | 'lend' | 'payment' | 'transfer';
@@ -143,7 +146,6 @@ export default function PersonalSpace() {
   const [showNoteForm, setShowNoteForm] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<PersonalTransaction | null>(null);
-  const [selectedPartner, setSelectedPartner] = useState<string>('');
 
   const transactionForm = useForm<TransactionForm>({
     defaultValues: {
@@ -159,6 +161,7 @@ export default function PersonalSpace() {
 
   const ruleForm = useForm<RuleForm>({
     defaultValues: {
+      from_partner_id: '',
       to_partner_id: '',
       amount: 0,
       transaction_type: 'payment',
@@ -358,7 +361,7 @@ export default function PersonalSpace() {
       const { error } = await supabase
         .from('automated_transaction_rules')
         .insert({
-          from_partner_id: user.id,
+          from_partner_id: data.from_partner_id,
           to_partner_id: data.to_partner_id,
           amount: data.amount,
           transaction_type: data.transaction_type,
@@ -535,6 +538,33 @@ export default function PersonalSpace() {
 
   const unreadMessages = messages.filter(msg => !msg.is_read && msg.receiver_id === user?.id).length;
 
+  // Helper function to determine transaction direction and color
+  const getTransactionDisplay = (transaction: PersonalTransaction) => {
+    const isFromCurrentUser = transaction.from_partner_id === user?.id;
+    const isToCurrentUser = transaction.to_partner_id === user?.id;
+    
+    let direction = '';
+    let color = '';
+    let icon = null;
+    let partnerName = '';
+    
+    if (isFromCurrentUser) {
+      // Current user is sending money
+      direction = 'to';
+      color = 'text-red-600';
+      icon = <ArrowUpRight className="h-4 w-4" />;
+      partnerName = transaction.to_partner.full_name;
+    } else if (isToCurrentUser) {
+      // Current user is receiving money
+      direction = 'from';
+      color = 'text-green-600';
+      icon = <ArrowDownLeft className="h-4 w-4" />;
+      partnerName = transaction.from_partner.full_name;
+    }
+    
+    return { direction, color, icon, partnerName };
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -690,11 +720,18 @@ export default function PersonalSpace() {
                           </div>
                           <span className="font-medium text-gray-900">{balance.partner_name}</span>
                         </div>
-                        <span className={`font-semibold ${
-                          balance.balance_amount >= 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {balance.balance_amount >= 0 ? '+' : ''}₹{balance.balance_amount.toLocaleString()}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          {balance.balance_amount >= 0 ? (
+                            <ArrowDownLeft className="h-4 w-4 text-green-600" />
+                          ) : (
+                            <ArrowUpRight className="h-4 w-4 text-red-600" />
+                          )}
+                          <span className={`font-semibold ${
+                            balance.balance_amount >= 0 ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            ₹{Math.abs(balance.balance_amount).toLocaleString()}
+                          </span>
+                        </div>
                       </div>
                       <p className="text-xs text-gray-500 mt-2">
                         {balance.balance_amount >= 0 
@@ -719,59 +756,63 @@ export default function PersonalSpace() {
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">From</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">To</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Partner</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
-                        {personalTransactions.map((transaction) => (
-                          <tr key={transaction.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {format(new Date(transaction.transaction_date), 'MMM dd, yyyy')}
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                transaction.transaction_type === 'borrow' ? 'bg-red-100 text-red-800' :
-                                transaction.transaction_type === 'lend' ? 'bg-green-100 text-green-800' :
-                                transaction.transaction_type === 'payment' ? 'bg-blue-100 text-blue-800' :
-                                'bg-gray-100 text-gray-800'
-                              }`}>
-                                {transaction.transaction_type}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {transaction.from_partner.full_name}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {transaction.to_partner.full_name}
-                            </td>
-                            <td className="px-4 py-3 text-sm font-semibold text-gray-900">
-                              ₹{transaction.amount.toLocaleString()}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
-                              {transaction.description || '-'}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-500">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => handleEditTransaction(transaction)}
-                                  className="text-blue-600 hover:text-blue-800"
-                                >
-                                  <Edit2 className="h-4 w-4" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteTransaction(transaction.id)}
-                                  className="text-red-600 hover:text-red-800"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                        {personalTransactions.map((transaction) => {
+                          const display = getTransactionDisplay(transaction);
+                          return (
+                            <tr key={transaction.id} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 text-sm text-gray-900">
+                                {format(new Date(transaction.transaction_date), 'MMM dd, yyyy')}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                  transaction.transaction_type === 'borrow' ? 'bg-red-100 text-red-800' :
+                                  transaction.transaction_type === 'lend' ? 'bg-green-100 text-green-800' :
+                                  transaction.transaction_type === 'payment' ? 'bg-blue-100 text-blue-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {transaction.transaction_type}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-900">
+                                <div className="flex items-center gap-2">
+                                  {display.icon}
+                                  <span>{display.direction} {display.partnerName}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-sm font-semibold">
+                                <span className={display.color}>
+                                  ₹{transaction.amount.toLocaleString()}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-600">
+                                {transaction.description || '-'}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-500">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleEditTransaction(transaction)}
+                                    className="text-blue-600 hover:text-blue-800"
+                                  >
+                                    <Edit2 className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteTransaction(transaction.id)}
+                                    className="text-red-600 hover:text-red-800"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1038,6 +1079,12 @@ export default function PersonalSpace() {
                 />
               </div>
 
+              <div className="bg-blue-50 p-3 rounded-md">
+                <p className="text-sm text-blue-800">
+                  <strong>Tip:</strong> Select "From Partner" as the person who owes money and "To Partner" as the person who will receive it.
+                </p>
+              </div>
+
               <div className="flex gap-3">
                 <button
                   type="submit"
@@ -1075,12 +1122,27 @@ export default function PersonalSpace() {
 
             <form onSubmit={ruleForm.handleSubmit(handleRuleSubmit)} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Partner</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">From Partner</label>
+                <select
+                  {...ruleForm.register('from_partner_id', { required: true })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select partner</option>
+                  <option value={user?.id}>You</option>
+                  {partners.map((partner) => (
+                    <option key={partner.id} value={partner.id}>{partner.full_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">To Partner</label>
                 <select
                   {...ruleForm.register('to_partner_id', { required: true })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select partner</option>
+                  <option value={user?.id}>You</option>
                   {partners.map((partner) => (
                     <option key={partner.id} value={partner.id}>{partner.full_name}</option>
                   ))}
