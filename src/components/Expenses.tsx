@@ -41,6 +41,7 @@ interface ExpenseForm {
   description: string;
   expense_date: string;
   receipt_url: string;
+  paid_by_partner_id: string; // NEW: Partner who paid
 }
 
 interface CategoryForm {
@@ -52,6 +53,7 @@ export default function Expenses() {
   const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]); // NEW: Partners list
   const [loading, setLoading] = useState(true);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [showCategoryForm, setShowCategoryForm] = useState(false);
@@ -96,8 +98,16 @@ export default function Expenses() {
 
       if (expensesError) throw expensesError;
 
+      // Fetch partners
+      const { data: partnersData, error: partnersError } = await supabase
+        .from('partners')
+        .select('id, full_name, email')
+        .order('full_name');
+      if (partnersError) throw partnersError;
+
       setCategories(categoriesData || []);
       setExpenses(expensesData || []);
+      setPartners(partnersData || []);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -109,8 +119,13 @@ export default function Expenses() {
     if (!user) return;
 
     try {
+      if (!data.paid_by_partner_id) {
+        alert('Please select the partner who paid for this expense.');
+        return;
+      }
+
       if (editingExpenseId) {
-        // Update existing expense
+        // Update existing expense (not handling partner change for simplicity)
         const { error } = await supabase
           .from('expenses')
           .update({
@@ -134,10 +149,25 @@ export default function Expenses() {
             description: data.description,
             expense_date: data.expense_date,
             receipt_url: data.receipt_url || null,
-            created_by: user.id
+            created_by: user.id,
+            paid_by_partner_id: data.paid_by_partner_id // NEW: store partner
           });
 
         if (error) throw error;
+
+        // Deduct from partner's balance
+        const { data: partnerData, error: partnerError } = await supabase
+          .from('partners')
+          .select('current_balance')
+          .eq('id', data.paid_by_partner_id)
+          .single();
+        if (partnerError) throw partnerError;
+        const newBalance = (partnerData?.current_balance || 0) - data.amount;
+        const { error: updateError } = await supabase
+          .from('partners')
+          .update({ current_balance: newBalance })
+          .eq('id', data.paid_by_partner_id);
+        if (updateError) throw updateError;
       }
 
       expenseForm.reset({
@@ -145,7 +175,8 @@ export default function Expenses() {
         amount: 0,
         description: '',
         expense_date: format(new Date(), 'yyyy-MM-dd'),
-        receipt_url: ''
+        receipt_url: '',
+        paid_by_partner_id: ''
       });
       setShowExpenseForm(false);
       fetchData();
@@ -443,6 +474,23 @@ export default function Expenses() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="https://..."
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Paid by Partner
+                </label>
+                <select
+                  {...expenseForm.register('paid_by_partner_id', { required: true })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select partner</option>
+                  {partners.map((partner) => (
+                    <option key={partner.id} value={partner.id}>
+                      {partner.full_name} ({partner.email})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex gap-3">
