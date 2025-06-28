@@ -18,6 +18,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    let mounted = true;
+
+    const getSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (!mounted) return;
+
+        if (error) {
+          console.error('Error getting session:', error);
+        }
+
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        // Only try to ensure partner profile if we have a user and no error
+        if (session?.user && !error) {
+          try {
+            await ensurePartnerProfile(session.user);
+          } catch (profileError) {
+            console.error('Error ensuring partner profile:', profileError);
+            // Don't block the app if profile creation fails
+          }
+        }
+      } catch (error) {
+        console.error('Error in getSession:', error);
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!mounted) return;
+
+        try {
+          setSession(session);
+          setUser(session?.user ?? null);
+          
+          // Only try to ensure partner profile for sign in events
+          if (session?.user && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+            try {
+              await ensurePartnerProfile(session.user);
+            } catch (profileError) {
+              console.error('Error ensuring partner profile:', profileError);
+              // Don't block the app if profile creation fails
+            }
+          }
+        } catch (error) {
+          console.error('Error in auth state change:', error);
+        } finally {
+          if (mounted) {
+            setLoading(false);
+          }
+        }
+      }
+    );
+
+    getSession();
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
   const ensurePartnerProfile = async (user: User) => {
     try {
       // Check if partner profile exists
@@ -25,10 +94,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .from('partners')
         .select('id')
         .eq('id', user.id)
-        .single();
+        .maybeSingle(); // Use maybeSingle instead of single to avoid errors when no record exists
 
       // If partner doesn't exist, create one
-      if (fetchError && fetchError.code === 'PGRST116') {
+      if (!existingPartner && !fetchError) {
         const { error: insertError } = await supabase
           .from('partners')
           .insert({
@@ -40,95 +109,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (insertError) {
           console.error('Error creating partner profile:', insertError);
+          throw insertError;
         }
-      } else if (fetchError && fetchError.code !== 'PGRST116') {
+      } else if (fetchError) {
         console.error('Error checking partner profile:', fetchError);
+        throw fetchError;
       }
     } catch (error) {
       console.error('Error ensuring partner profile:', error);
+      throw error;
     }
   };
-
-  useEffect(() => {
-    const getSession = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error('Error getting session:', error);
-          setLoading(false);
-          return;
-        }
-
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        // Ensure partner profile exists for authenticated user
-        if (session?.user) {
-          await ensurePartnerProfile(session.user);
-        }
-        
-        setLoading(false);
-      } catch (error) {
-        console.error('Error in getSession:', error);
-        setLoading(false);
-      }
-    };
-
-    getSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        try {
-          setSession(session);
-          setUser(session?.user ?? null);
-          
-          // Ensure partner profile exists for authenticated user
-          if (session?.user) {
-            await ensurePartnerProfile(session.user);
-          }
-          
-          setLoading(false);
-        } catch (error) {
-          console.error('Error in auth state change:', error);
-          setLoading(false);
-        }
-      }
-    );
-
-    return () => subscription.unsubscribe();
-  }, []);
 
   const signIn = async (email: string, password: string) => {
     return await supabase.auth.signInWithPassword({ email, password });
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName
+          }
+        }
+      });
+
+      if (!error && data.user) {
+        // Create partner profile
+        const { error: profileError } = await supabase.from('partners').insert({
+          id: data.user.id,
+          email,
+          full_name: fullName,
+          current_balance: 0,
+        });
+
+        if (profileError) {
+          console.error('Error creating partner profile during signup:', profileError);
+          // Don't fail the signup if profile creation fails
         }
       }
-    });
 
-    if (!error && data.user) {
-      // Create partner profile
-      await supabase.from('partners').insert({
-        id: data.user.id,
-        email,
-        full_name: fullName,
-        current_balance: 0,
-      });
+      return { error };
+    } catch (error) {
+      console.error('Error in signUp:', error);
+      return { error };
     }
-
-    return { error };
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
   };
 
   return (
