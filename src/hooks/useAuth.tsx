@@ -18,11 +18,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const ensurePartnerProfile = async (user: User) => {
+    try {
+      // Check if partner profile exists
+      const { data: existingPartner, error: fetchError } = await supabase
+        .from('partners')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+
+      // If partner doesn't exist, create one
+      if (fetchError && fetchError.code === 'PGRST116') {
+        const { error: insertError } = await supabase
+          .from('partners')
+          .insert({
+            id: user.id,
+            email: user.email || '',
+            full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+            current_balance: 0,
+          });
+
+        if (insertError) {
+          console.error('Error creating partner profile:', insertError);
+        }
+      } else if (fetchError) {
+        console.error('Error checking partner profile:', fetchError);
+      }
+    } catch (error) {
+      console.error('Error ensuring partner profile:', error);
+    }
+  };
+
   useEffect(() => {
     const getSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
       setUser(session?.user ?? null);
+      
+      // Ensure partner profile exists for authenticated user
+      if (session?.user) {
+        await ensurePartnerProfile(session.user);
+      }
+      
       setLoading(false);
     };
 
@@ -32,6 +69,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
+        
+        // Ensure partner profile exists for authenticated user
+        if (session?.user) {
+          await ensurePartnerProfile(session.user);
+        }
+        
         setLoading(false);
       }
     );
