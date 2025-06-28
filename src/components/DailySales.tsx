@@ -44,11 +44,18 @@ export default function DailySales() {
     fetchSales();
   }, []);
 
+  // Watch for changes in online and cash amounts to calculate total
   useEffect(() => {
-    const onlineAmount = form.watch('online_amount') || 0;
-    const cashAmount = form.watch('cash_amount') || 0;
-    form.setValue('total_amount', onlineAmount + cashAmount);
-  }, [form.watch('online_amount'), form.watch('cash_amount')]);
+    const subscription = form.watch((value, { name }) => {
+      if (name === 'online_amount' || name === 'cash_amount') {
+        const onlineAmount = parseFloat(value.online_amount?.toString() || '0') || 0;
+        const cashAmount = parseFloat(value.cash_amount?.toString() || '0') || 0;
+        const total = onlineAmount + cashAmount;
+        form.setValue('total_amount', total);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form]);
 
   const fetchSales = async () => {
     try {
@@ -80,6 +87,11 @@ export default function DailySales() {
     if (!user) return;
 
     try {
+      // Ensure amounts are numbers
+      const onlineAmount = parseFloat(data.online_amount.toString()) || 0;
+      const cashAmount = parseFloat(data.cash_amount.toString()) || 0;
+      const totalAmount = onlineAmount + cashAmount;
+
       // Check for duplicate date
       const dateExists = await checkDateExists(data.date, editingId);
       if (dateExists) {
@@ -93,9 +105,9 @@ export default function DailySales() {
           .from('daily_sales')
           .update({
             date: data.date,
-            total_amount: data.total_amount,
-            online_amount: data.online_amount,
-            cash_amount: data.cash_amount,
+            total_amount: totalAmount,
+            online_amount: onlineAmount,
+            cash_amount: cashAmount,
             notes: data.notes || null
           })
           .eq('id', editingId);
@@ -108,9 +120,9 @@ export default function DailySales() {
           .from('daily_sales')
           .insert({
             date: data.date,
-            total_amount: data.total_amount,
-            online_amount: data.online_amount,
-            cash_amount: data.cash_amount,
+            total_amount: totalAmount,
+            online_amount: onlineAmount,
+            cash_amount: cashAmount,
             notes: data.notes || null,
             created_by: user.id
           });
@@ -228,7 +240,11 @@ export default function DailySales() {
                 <input
                   type="number"
                   step="0.01"
-                  {...form.register('online_amount', { required: true, min: 0 })}
+                  {...form.register('online_amount', { 
+                    required: true, 
+                    min: 0,
+                    valueAsNumber: true 
+                  })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -240,7 +256,11 @@ export default function DailySales() {
                 <input
                   type="number"
                   step="0.01"
-                  {...form.register('cash_amount', { required: true, min: 0 })}
+                  {...form.register('cash_amount', { 
+                    required: true, 
+                    min: 0,
+                    valueAsNumber: true 
+                  })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>

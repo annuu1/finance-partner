@@ -11,7 +11,6 @@ import {
   MoreVertical,
   Circle,
   CheckCircle2,
-  Clock,
   ArrowLeft,
   Menu
 } from 'lucide-react';
@@ -57,10 +56,8 @@ export default function PersonalChat() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [typingPartners, setTypingPartners] = useState<Set<string>>(new Set());
   const [showSidebar, setShowSidebar] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
   const messageForm = useForm<MessageForm>({
     defaultValues: {
@@ -100,8 +97,8 @@ export default function PersonalChat() {
   }, [messages]);
 
   useEffect(() => {
-    // Auto-select most recent conversation partner
-    if (conversations.length > 0 && !selectedPartner) {
+    // Auto-select most recent conversation partner on desktop
+    if (conversations.length > 0 && !selectedPartner && window.innerWidth >= 1024) {
       setSelectedPartner(conversations[0].partner_id);
     }
   }, [conversations, selectedPartner]);
@@ -309,7 +306,7 @@ export default function PersonalChat() {
         transition-transform duration-300 ease-in-out
       `}>
         {/* Sidebar Header */}
-        <div className="p-4 border-b border-gray-200">
+        <div className="p-4 border-b border-gray-200 bg-white">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold text-gray-900">Messages</h2>
             <button
@@ -332,11 +329,11 @@ export default function PersonalChat() {
         </div>
 
         {/* Conversations List */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto bg-gray-50">
           {filteredConversations.length === 0 ? (
             <div className="p-4 text-center text-gray-500">
               <MessageCircle className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-              <p>No conversations found</p>
+              <p className="text-sm">No conversations found</p>
             </div>
           ) : (
             <div className="space-y-1 p-2">
@@ -347,7 +344,7 @@ export default function PersonalChat() {
                   className={`w-full p-3 rounded-lg text-left transition-colors ${
                     selectedPartner === conversation.partner_id
                       ? 'bg-blue-50 border border-blue-200'
-                      : 'hover:bg-gray-50'
+                      : 'hover:bg-white bg-white shadow-sm border border-gray-100'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
@@ -360,7 +357,7 @@ export default function PersonalChat() {
                           <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
                         )}
                       </div>
-                      <span className="font-medium text-gray-900 truncate">
+                      <span className="font-medium text-gray-900 truncate text-sm">
                         {conversation.partner_name}
                       </span>
                     </div>
@@ -390,7 +387,7 @@ export default function PersonalChat() {
         {selectedPartner ? (
           <>
             {/* Chat Header */}
-            <div className="p-4 border-b border-gray-200 bg-gray-50">
+            <div className="p-4 border-b border-gray-200 bg-white">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <button
@@ -416,14 +413,14 @@ export default function PersonalChat() {
                     </p>
                   </div>
                 </div>
-                <button className="p-2 hover:bg-gray-200 rounded-lg">
+                <button className="p-2 hover:bg-gray-100 rounded-lg">
                   <MoreVertical className="h-4 w-4 text-gray-600" />
                 </button>
               </div>
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
               {messages.length === 0 ? (
                 <div className="text-center text-gray-500 py-8">
                   <MessageCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
@@ -447,7 +444,7 @@ export default function PersonalChat() {
                           <div className={`max-w-xs sm:max-w-sm lg:max-w-md px-4 py-2 rounded-lg ${
                             isFromCurrentUser
                               ? 'bg-blue-500 text-white'
-                              : 'bg-gray-100 text-gray-900'
+                              : 'bg-white text-gray-900 border border-gray-200'
                           }`}>
                             <p className="text-sm break-words">{message.message_text}</p>
                             <div className={`flex items-center justify-end gap-1 mt-1 ${
@@ -471,31 +468,16 @@ export default function PersonalChat() {
                       </div>
                     );
                   })}
-                  {typingPartners.has(selectedPartner) && (
-                    <div className="flex justify-start">
-                      <div className="bg-gray-100 text-gray-900 px-4 py-2 rounded-lg">
-                        <div className="flex items-center gap-1">
-                          <div className="flex space-x-1">
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                          </div>
-                          <span className="text-xs text-gray-500 ml-2">typing...</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
               <div ref={messagesEndRef} />
             </div>
 
             {/* Message Input */}
-            <div className="p-4 border-t border-gray-200">
+            <div className="p-4 border-t border-gray-200 bg-white">
               <form onSubmit={messageForm.handleSubmit(handleSendMessage)} className="flex gap-2">
                 <div className="flex-1 relative">
                   <textarea
-                    ref={messageInputRef}
                     {...messageForm.register('message_text', { required: true })}
                     placeholder="Type a message..."
                     onKeyPress={handleKeyPress}
@@ -519,18 +501,18 @@ export default function PersonalChat() {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-500">
+          <div className="flex-1 flex items-center justify-center text-gray-500 bg-gray-50">
             <div className="text-center">
               <button
-                className="lg:hidden mb-4 p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100"
+                className="lg:hidden mb-4 p-3 rounded-full bg-blue-100 text-blue-600 hover:bg-blue-200"
                 onClick={() => setShowSidebar(true)}
               >
                 <Menu className="h-6 w-6" />
               </button>
               <MessageCircle className="h-16 w-16 mx-auto mb-4 text-gray-300" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">Select a conversation</h3>
-              <p className="hidden lg:block">Choose a partner from the sidebar to start chatting</p>
-              <p className="lg:hidden">Tap the menu button to see your conversations</p>
+              <p className="hidden lg:block text-gray-600">Choose a partner from the sidebar to start chatting</p>
+              <p className="lg:hidden text-gray-600">Tap the menu button to see your conversations</p>
             </div>
           </div>
         )}

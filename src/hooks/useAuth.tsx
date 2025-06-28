@@ -29,13 +29,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (error) {
           console.error('Error getting session:', error);
+          setLoading(false);
+          return;
         }
 
         setSession(session);
         setUser(session?.user ?? null);
         
-        // Only try to ensure partner profile if we have a user and no error
-        if (session?.user && !error) {
+        // Only try to ensure partner profile if we have a user
+        if (session?.user) {
           try {
             await ensurePartnerProfile(session.user);
           } catch (profileError) {
@@ -56,17 +58,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (event, session) => {
         if (!mounted) return;
 
+        console.log('Auth state changed:', event, session?.user?.email);
+
         try {
           setSession(session);
           setUser(session?.user ?? null);
           
           // Only try to ensure partner profile for sign in events
-          if (session?.user && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+          if (session?.user && event === 'SIGNED_IN') {
             try {
               await ensurePartnerProfile(session.user);
             } catch (profileError) {
               console.error('Error ensuring partner profile:', profileError);
-              // Don't block the app if profile creation fails
             }
           }
         } catch (error) {
@@ -96,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq('id', user.id)
         .single();
 
-      // If partner doesn't exist, create one
+      // If partner doesn't exist and we got a "no rows" error, create one
       if (!existingPartner && fetchError?.code === 'PGRST116') {
         const { error: insertError } = await supabase
           .from('partners')
@@ -122,7 +125,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    return await supabase.auth.signInWithPassword({ email, password });
+    try {
+      const result = await supabase.auth.signInWithPassword({ email, password });
+      return { error: result.error };
+    } catch (error) {
+      console.error('Error in signIn:', error);
+      return { error };
+    }
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
