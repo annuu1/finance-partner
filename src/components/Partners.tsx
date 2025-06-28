@@ -244,29 +244,91 @@ export default function Partners() {
     setProcessingApproval(transactionId);
 
     try {
+      // Fetch the transaction details
+      const { data: transaction, error: fetchError } = await supabase
+        .from('partner_transactions')
+        .select('*')
+        .eq('id', transactionId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
       const updateData: any = {
         status: action === 'approve' ? 'approved' : 'rejected',
-        approved_by: user.id
+        approved_by: user.id,
+        approved_at: new Date().toISOString(),
       };
-
       if (action === 'reject' && rejectionReason) {
         updateData.rejection_reason = rejectionReason;
       }
 
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('partner_transactions')
         .update(updateData)
         .eq('id', transactionId);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      fetchData();
-      
+      // If approved, update balances
       if (action === 'approve') {
-        alert('Transaction approved successfully!');
+        // Fetch current balances for sender and receiver
+        console.log('Approving transaction:', transactionId);
+        console.log('Sender ID:', transaction.from_partner_id);
+        console.log('Receiver ID:', transaction.to_partner_id);
+        const { data: sender, error: senderFetchError } = await supabase
+          .from('partners')
+          .select('current_balance')
+          .eq('id', transaction.from_partner_id)
+          .single();
+        if (senderFetchError) {
+          console.error('Sender fetch error:', senderFetchError);
+          throw senderFetchError;
+        }
+        console.log('Sender current_balance:', sender.current_balance);
+
+        const { data: receiver, error: receiverFetchError } = await supabase
+          .from('partners')
+          .select('current_balance')
+          .eq('id', transaction.to_partner_id)
+          .single();
+        if (receiverFetchError) {
+          console.error('Receiver fetch error:', receiverFetchError);
+          throw receiverFetchError;
+        }
+        console.log('Receiver current_balance:', receiver.current_balance);
+
+        // Calculate new balances
+        const newSenderBalance = (sender.current_balance ?? 0) - transaction.amount;
+        const newReceiverBalance = (receiver.current_balance ?? 0) + transaction.amount;
+        console.log('New sender balance:', newSenderBalance);
+        console.log('New receiver balance:', newReceiverBalance);
+
+        // Update sender balance
+        const { error: senderError } = await supabase
+          .from('partners')
+          .update({ current_balance: newSenderBalance })
+          .eq('id', transaction.from_partner_id);
+        if (senderError) {
+          console.error('Sender update error:', senderError);
+          throw senderError;
+        }
+
+        // Update receiver balance
+        const { error: receiverError } = await supabase
+          .from('partners')
+          .update({ current_balance: newReceiverBalance })
+          .eq('id', transaction.to_partner_id);
+        if (receiverError) {
+          console.error('Receiver update error:', receiverError);
+          throw receiverError;
+        }
+
+        alert('Transaction approved and balances updated!');
       } else {
         alert('Transaction rejected.');
       }
+
+      fetchData();
     } catch (error) {
       console.error('Error updating transaction:', error);
       alert('Error processing transaction. Please try again.');
