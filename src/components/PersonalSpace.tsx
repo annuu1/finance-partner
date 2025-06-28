@@ -22,12 +22,9 @@ import {
   Repeat,
   User,
   Users,
-  Check,
+  CheckCircle,
   XCircle,
   AlertCircle,
-  ArrowUpRight,
-  ArrowDownLeft,
-  CheckCircle,
   Eye
 } from 'lucide-react';
 
@@ -106,7 +103,6 @@ interface Partner {
 }
 
 interface TransactionForm {
-  from_partner_id: string;
   to_partner_id: string;
   amount: number;
   transaction_type: 'borrow' | 'lend' | 'payment' | 'transfer';
@@ -138,10 +134,6 @@ interface NoteForm {
   is_private: boolean;
 }
 
-interface ApprovalForm {
-  rejection_reason: string;
-}
-
 export default function PersonalSpace() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'transactions' | 'automation' | 'messages' | 'notes'>('transactions');
@@ -156,14 +148,12 @@ export default function PersonalSpace() {
   const [showRuleForm, setShowRuleForm] = useState(false);
   const [showMessageForm, setShowMessageForm] = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
-  const [showApprovalModal, setShowApprovalModal] = useState(false);
-  const [selectedTransaction, setSelectedTransaction] = useState<PersonalTransaction | null>(null);
-  const [editingTransaction, setEditingTransaction] = useState<PersonalTransaction | null>(null);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<PersonalTransaction | null>(null);
+  const [selectedPartner, setSelectedPartner] = useState<string>('');
 
   const transactionForm = useForm<TransactionForm>({
     defaultValues: {
-      from_partner_id: '',
       to_partner_id: '',
       amount: 0,
       transaction_type: 'payment',
@@ -199,12 +189,6 @@ export default function PersonalSpace() {
       content: '',
       category: 'general',
       is_private: true
-    }
-  });
-
-  const approvalForm = useForm<ApprovalForm>({
-    defaultValues: {
-      rejection_reason: ''
     }
   });
 
@@ -263,7 +247,7 @@ export default function PersonalSpace() {
         .eq('partner_id', user.id)
         .order('updated_at', { ascending: false });
 
-      // Fetch personal balances (only approved transactions affect balances)
+      // Fetch personal balances
       const { data: balancesData } = await supabase
         .from('personal_balances')
         .select(`
@@ -301,36 +285,38 @@ export default function PersonalSpace() {
 
     try {
       if (editingTransaction) {
-        // Update existing transaction
+        // Update existing transaction (will reset to pending status)
         const { error } = await supabase
           .from('personal_transactions')
           .update({
-            from_partner_id: data.from_partner_id,
             to_partner_id: data.to_partner_id,
             amount: data.amount,
             transaction_type: data.transaction_type,
             description: data.description || null,
             category: data.category,
             transaction_date: data.transaction_date,
-            status: 'pending' // Reset to pending when edited
+            status: 'pending', // Reset to pending for re-approval
+            approved_by: null,
+            approved_at: null,
+            rejection_reason: null
           })
           .eq('id', editingTransaction.id);
 
         if (error) throw error;
         setEditingTransaction(null);
       } else {
-        // Create new transaction (always starts as pending)
+        // Create new transaction
         const { error } = await supabase
           .from('personal_transactions')
           .insert({
-            from_partner_id: data.from_partner_id,
+            from_partner_id: user.id,
             to_partner_id: data.to_partner_id,
             amount: data.amount,
             transaction_type: data.transaction_type,
             description: data.description || null,
             category: data.category,
             transaction_date: data.transaction_date,
-            status: 'pending'
+            status: 'pending' // All new transactions require approval
           });
 
         if (error) throw error;
@@ -345,58 +331,39 @@ export default function PersonalSpace() {
     }
   };
 
-  const handleApproveTransaction = async (transactionId: string) => {
+  const handleTransactionAction = async (transactionId: string, action: 'approve' | 'reject', rejectionReason?: string) => {
     if (!user) return;
 
     try {
+      const updateData: any = {
+        status: action === 'approve' ? 'approved' : 'rejected',
+        approved_by: user.id
+      };
+
+      if (action === 'reject' && rejectionReason) {
+        updateData.rejection_reason = rejectionReason;
+      }
+
       const { error } = await supabase
         .from('personal_transactions')
-        .update({
-          status: 'approved',
-          approved_by: user.id,
-          approved_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', transactionId);
 
       if (error) throw error;
       fetchData();
     } catch (error) {
-      console.error('Error approving transaction:', error);
-      alert('Error approving transaction. Please try again.');
-    }
-  };
-
-  const handleRejectTransaction = async (data: ApprovalForm) => {
-    if (!user || !selectedTransaction) return;
-
-    try {
-      const { error } = await supabase
-        .from('personal_transactions')
-        .update({
-          status: 'rejected',
-          approved_by: user.id,
-          approved_at: new Date().toISOString(),
-          rejection_reason: data.rejection_reason || null
-        })
-        .eq('id', selectedTransaction.id);
-
-      if (error) throw error;
-      
-      approvalForm.reset();
-      setShowApprovalModal(false);
-      setSelectedTransaction(null);
-      fetchData();
-    } catch (error) {
-      console.error('Error rejecting transaction:', error);
-      alert('Error rejecting transaction. Please try again.');
+      console.error('Error updating transaction status:', error);
+      alert('Error updating transaction. Please try again.');
     }
   };
 
   const handleEditTransaction = (transaction: PersonalTransaction) => {
-    if (transaction.status !== 'pending' && transaction.status !== 'approved') return;
-    
+    if (transaction.status !== 'pending' && transaction.from_partner_id !== user?.id) {
+      alert('You can only edit transactions you created or pending transactions.');
+      return;
+    }
+
     setEditingTransaction(transaction);
-    transactionForm.setValue('from_partner_id', transaction.from_partner_id);
     transactionForm.setValue('to_partner_id', transaction.to_partner_id);
     transactionForm.setValue('amount', transaction.amount);
     transactionForm.setValue('transaction_type', transaction.transaction_type);
@@ -404,23 +371,6 @@ export default function PersonalSpace() {
     transactionForm.setValue('category', transaction.category);
     transactionForm.setValue('transaction_date', transaction.transaction_date);
     setShowTransactionForm(true);
-  };
-
-  const handleDeleteTransaction = async (transactionId: string) => {
-    if (!confirm('Are you sure you want to delete this transaction?')) return;
-
-    try {
-      const { error } = await supabase
-        .from('personal_transactions')
-        .delete()
-        .eq('id', transactionId);
-
-      if (error) throw error;
-      fetchData();
-    } catch (error) {
-      console.error('Error deleting transaction:', error);
-      alert('Error deleting transaction. Please try again.');
-    }
   };
 
   const handleRuleSubmit = async (data: RuleForm) => {
@@ -585,6 +535,22 @@ export default function PersonalSpace() {
     }
   };
 
+  const deleteTransaction = async (transactionId: string) => {
+    if (!confirm('Are you sure you want to delete this transaction?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('personal_transactions')
+        .delete()
+        .eq('id', transactionId);
+
+      if (error) throw error;
+      fetchData();
+    } catch (error) {
+      console.error('Error deleting transaction:', error);
+    }
+  };
+
   const markMessageAsRead = async (messageId: string) => {
     try {
       const { error } = await supabase
@@ -599,54 +565,16 @@ export default function PersonalSpace() {
     }
   };
 
-  const getTransactionStatusColor = (status: string) => {
-    switch (status) {
-      case 'approved':
-        return 'bg-green-100 text-green-800';
-      case 'rejected':
-        return 'bg-red-100 text-red-800';
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getTransactionIcon = (transaction: PersonalTransaction) => {
-    const isFromCurrentUser = transaction.from_partner_id === user?.id;
-    if (isFromCurrentUser) {
-      return <ArrowUpRight className="h-4 w-4 text-red-600" />;
-    } else {
-      return <ArrowDownLeft className="h-4 w-4 text-green-600" />;
-    }
-  };
-
-  const getTransactionAmountColor = (transaction: PersonalTransaction) => {
-    const isFromCurrentUser = transaction.from_partner_id === user?.id;
-    return isFromCurrentUser ? 'text-red-600' : 'text-green-600';
-  };
-
-  const canApproveTransaction = (transaction: PersonalTransaction) => {
-    return transaction.status === 'pending' && transaction.to_partner_id === user?.id;
-  };
-
-  const canEditTransaction = (transaction: PersonalTransaction) => {
-    return (
-      (transaction.status === 'pending' && transaction.from_partner_id === user?.id) ||
-      (transaction.status === 'approved' && (transaction.from_partner_id === user?.id || transaction.to_partner_id === user?.id))
-    );
-  };
-
-  // Calculate statistics
-  const approvedTransactions = personalTransactions.filter(t => t.status === 'approved');
-  const pendingTransactions = personalTransactions.filter(t => t.status === 'pending');
   const totalOwed = personalBalances.reduce((sum, balance) => 
     balance.balance_amount < 0 ? sum + Math.abs(balance.balance_amount) : sum, 0
   );
+  
   const totalReceivable = personalBalances.reduce((sum, balance) => 
     balance.balance_amount > 0 ? sum + balance.balance_amount : sum, 0
   );
+
   const unreadMessages = messages.filter(msg => !msg.is_read && msg.receiver_id === user?.id).length;
+  const pendingApprovals = personalTransactions.filter(tx => tx.status === 'pending' && tx.to_partner_id === user?.id).length;
 
   if (loading) {
     return (
@@ -702,7 +630,7 @@ export default function PersonalSpace() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -730,23 +658,11 @@ export default function PersonalSpace() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Pending Approval</p>
-              <p className="text-2xl font-bold text-yellow-600">{pendingTransactions.length}</p>
+              <p className="text-sm font-medium text-gray-600">Pending Approvals</p>
+              <p className="text-2xl font-bold text-orange-600">{pendingApprovals}</p>
             </div>
-            <div className="bg-yellow-50 p-3 rounded-full">
-              <AlertCircle className="h-6 w-6 text-yellow-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Active Rules</p>
-              <p className="text-2xl font-bold text-blue-600">{automatedRules.filter(r => r.is_active).length}</p>
-            </div>
-            <div className="bg-blue-50 p-3 rounded-full">
-              <Clock className="h-6 w-6 text-blue-600" />
+            <div className="bg-orange-50 p-3 rounded-full">
+              <Clock className="h-6 w-6 text-orange-600" />
             </div>
           </div>
         </div>
@@ -792,9 +708,9 @@ export default function PersonalSpace() {
                       {unreadMessages}
                     </span>
                   )}
-                  {tab.id === 'transactions' && pendingTransactions.length > 0 && (
-                    <span className="bg-yellow-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] h-5 flex items-center justify-center">
-                      {pendingTransactions.length}
+                  {tab.id === 'transactions' && pendingApprovals > 0 && (
+                    <span className="bg-orange-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] h-5 flex items-center justify-center">
+                      {pendingApprovals}
                     </span>
                   )}
                 </button>
@@ -809,7 +725,7 @@ export default function PersonalSpace() {
             <div className="space-y-6">
               {/* Personal Balances */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Personal Balances (Approved Transactions Only)</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Personal Balances</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {personalBalances.map((balance, index) => (
                     <div key={index} className="border border-gray-200 rounded-lg p-4">
@@ -820,18 +736,11 @@ export default function PersonalSpace() {
                           </div>
                           <span className="font-medium text-gray-900">{balance.partner_name}</span>
                         </div>
-                        <div className="flex items-center gap-1">
-                          {balance.balance_amount >= 0 ? (
-                            <ArrowDownLeft className="h-4 w-4 text-green-600" />
-                          ) : (
-                            <ArrowUpRight className="h-4 w-4 text-red-600" />
-                          )}
-                          <span className={`font-semibold ${
-                            balance.balance_amount >= 0 ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            ₹{Math.abs(balance.balance_amount).toLocaleString()}
-                          </span>
-                        </div>
+                        <span className={`font-semibold ${
+                          balance.balance_amount >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {balance.balance_amount >= 0 ? '+' : ''}₹{balance.balance_amount.toLocaleString()}
+                        </span>
                       </div>
                       <p className="text-xs text-gray-500 mt-2">
                         {balance.balance_amount >= 0 
@@ -850,26 +759,16 @@ export default function PersonalSpace() {
                 {personalTransactions.length === 0 ? (
                   <p className="text-gray-500 text-center py-8">No personal transactions found.</p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Partner</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {personalTransactions.map((transaction) => (
-                          <tr key={transaction.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {format(new Date(transaction.transaction_date), 'MMM dd, yyyy')}
-                            </td>
-                            <td className="px-4 py-3">
+                  <div className="space-y-3">
+                    {personalTransactions.map((transaction) => (
+                      <div key={transaction.id} className={`border rounded-lg p-4 ${
+                        transaction.status === 'pending' ? 'border-orange-200 bg-orange-50' :
+                        transaction.status === 'approved' ? 'border-green-200 bg-green-50' :
+                        'border-red-200 bg-red-50'
+                      }`}>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
                               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                 transaction.transaction_type === 'borrow' ? 'bg-red-100 text-red-800' :
                                 transaction.transaction_type === 'lend' ? 'bg-green-100 text-green-800' :
@@ -878,79 +777,81 @@ export default function PersonalSpace() {
                               }`}>
                                 {transaction.transaction_type}
                               </span>
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {transaction.from_partner_id === user?.id 
-                                ? transaction.to_partner.full_name 
-                                : transaction.from_partner.full_name
-                              }
-                            </td>
-                            <td className="px-4 py-3 text-sm font-semibold">
-                              <div className="flex items-center gap-1">
-                                {getTransactionIcon(transaction)}
-                                <span className={getTransactionAmountColor(transaction)}>
-                                  ₹{transaction.amount.toLocaleString()}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getTransactionStatusColor(transaction.status)}`}>
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                transaction.status === 'pending' ? 'bg-orange-100 text-orange-800' :
+                                transaction.status === 'approved' ? 'bg-green-100 text-green-800' :
+                                'bg-red-100 text-red-800'
+                              }`}>
+                                {transaction.status === 'pending' && <Clock className="h-3 w-3 mr-1" />}
+                                {transaction.status === 'approved' && <CheckCircle className="h-3 w-3 mr-1" />}
+                                {transaction.status === 'rejected' && <XCircle className="h-3 w-3 mr-1" />}
                                 {transaction.status}
                               </span>
-                              {transaction.status === 'rejected' && transaction.rejection_reason && (
-                                <p className="text-xs text-red-600 mt-1" title={transaction.rejection_reason}>
-                                  Reason: {transaction.rejection_reason.substring(0, 30)}...
-                                </p>
+                              <span className="text-sm font-semibold text-gray-900">
+                                ₹{transaction.amount.toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="text-sm text-gray-600 mb-2">
+                              <p>
+                                <strong>From:</strong> {transaction.from_partner.full_name} → 
+                                <strong> To:</strong> {transaction.to_partner.full_name}
+                              </p>
+                              <p><strong>Date:</strong> {format(new Date(transaction.transaction_date), 'MMM dd, yyyy')}</p>
+                              {transaction.description && (
+                                <p><strong>Description:</strong> {transaction.description}</p>
                               )}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
-                              {transaction.description || '-'}
-                            </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                              <div className="flex items-center gap-2">
-                                {canApproveTransaction(transaction) && (
-                                  <>
-                                    <button
-                                      onClick={() => handleApproveTransaction(transaction.id)}
-                                      className="text-green-600 hover:text-green-800"
-                                      title="Approve"
-                                    >
-                                      <CheckCircle className="h-4 w-4" />
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedTransaction(transaction);
-                                        setShowApprovalModal(true);
-                                      }}
-                                      className="text-red-600 hover:text-red-800"
-                                      title="Reject"
-                                    >
-                                      <XCircle className="h-4 w-4" />
-                                    </button>
-                                  </>
-                                )}
-                                {canEditTransaction(transaction) && (
-                                  <button
-                                    onClick={() => handleEditTransaction(transaction)}
-                                    className="text-blue-600 hover:text-blue-800"
-                                    title="Edit"
-                                  >
-                                    <Edit2 className="h-4 w-4" />
-                                  </button>
-                                )}
+                              {transaction.rejection_reason && (
+                                <p className="text-red-600"><strong>Rejection Reason:</strong> {transaction.rejection_reason}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 ml-4">
+                            {/* Show approval buttons for pending transactions where current user is receiver */}
+                            {transaction.status === 'pending' && transaction.to_partner_id === user?.id && (
+                              <>
                                 <button
-                                  onClick={() => handleDeleteTransaction(transaction.id)}
-                                  className="text-red-600 hover:text-red-800"
-                                  title="Delete"
+                                  onClick={() => handleTransactionAction(transaction.id, 'approve')}
+                                  className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 flex items-center gap-1"
                                 >
-                                  <Trash2 className="h-4 w-4" />
+                                  <CheckCircle className="h-3 w-3" />
+                                  Approve
                                 </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                                <button
+                                  onClick={() => {
+                                    const reason = prompt('Rejection reason (optional):');
+                                    handleTransactionAction(transaction.id, 'reject', reason || undefined);
+                                  }}
+                                  className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 flex items-center gap-1"
+                                >
+                                  <XCircle className="h-3 w-3" />
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                            
+                            {/* Edit button for creator or pending transactions */}
+                            {(transaction.from_partner_id === user?.id || transaction.status === 'pending') && (
+                              <button
+                                onClick={() => handleEditTransaction(transaction)}
+                                className="text-blue-600 hover:text-blue-800"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </button>
+                            )}
+                            
+                            {/* Delete button for creator */}
+                            {transaction.from_partner_id === user?.id && (
+                              <button
+                                onClick={() => deleteTransaction(transaction.id)}
+                                className="text-red-600 hover:text-red-800"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1131,35 +1032,25 @@ export default function PersonalSpace() {
               </button>
             </div>
 
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-sm text-blue-800">
-                <strong>Note:</strong> All transactions require approval from the receiving partner before affecting balances.
-              </p>
-            </div>
+            {editingTransaction && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-yellow-600" />
+                  <p className="text-sm text-yellow-800">
+                    Editing this transaction will reset its status to pending and require re-approval.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <form onSubmit={transactionForm.handleSubmit(handleTransactionSubmit)} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">From Partner</label>
-                <select
-                  {...transactionForm.register('from_partner_id', { required: true })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select partner</option>
-                  <option value={user?.id || ''}>You</option>
-                  {partners.map((partner) => (
-                    <option key={partner.id} value={partner.id}>{partner.full_name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">To Partner</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Partner</label>
                 <select
                   {...transactionForm.register('to_partner_id', { required: true })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select partner</option>
-                  <option value={user?.id || ''}>You</option>
                   {partners.map((partner) => (
                     <option key={partner.id} value={partner.id}>{partner.full_name}</option>
                   ))}
@@ -1218,6 +1109,12 @@ export default function PersonalSpace() {
                 />
               </div>
 
+              <div className="bg-blue-50 p-3 rounded-md">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> This transaction will be sent for approval to the selected partner.
+                </p>
+              </div>
+
               <div className="flex gap-3">
                 <button
                   type="submit"
@@ -1231,71 +1128,6 @@ export default function PersonalSpace() {
                     setShowTransactionForm(false);
                     setEditingTransaction(null);
                     transactionForm.reset();
-                  }}
-                  className="flex-1 bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Approval Modal */}
-      {showApprovalModal && selectedTransaction && (
-        <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Reject Transaction</h2>
-              <button onClick={() => {
-                setShowApprovalModal(false);
-                setSelectedTransaction(null);
-                approvalForm.reset();
-              }} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
-              <p className="text-sm text-gray-700">
-                <strong>Transaction:</strong> {selectedTransaction.transaction_type} of ₹{selectedTransaction.amount.toLocaleString()} 
-                from {selectedTransaction.from_partner.full_name} to {selectedTransaction.to_partner.full_name}
-              </p>
-              {selectedTransaction.description && (
-                <p className="text-sm text-gray-600 mt-1">
-                  <strong>Description:</strong> {selectedTransaction.description}
-                </p>
-              )}
-            </div>
-
-            <form onSubmit={approvalForm.handleSubmit(handleRejectTransaction)} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Rejection Reason (Optional)
-                </label>
-                <textarea
-                  {...approvalForm.register('rejection_reason')}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Why are you rejecting this transaction?"
-                />
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  type="submit"
-                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
-                >
-                  <XCircle className="h-4 w-4" />
-                  Reject Transaction
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowApprovalModal(false);
-                    setSelectedTransaction(null);
-                    approvalForm.reset();
                   }}
                   className="flex-1 bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 transition-colors"
                 >
