@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (insertError) {
           console.error('Error creating partner profile:', insertError);
         }
-      } else if (fetchError) {
+      } else if (fetchError && fetchError.code !== 'PGRST116') {
         console.error('Error checking partner profile:', fetchError);
       }
     } catch (error) {
@@ -51,22 +51,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      // Ensure partner profile exists for authenticated user
-      if (session?.user) {
-        await ensurePartnerProfile(session.user);
-      }
-      
-      setLoading(false);
-    };
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error getting session:', error);
+          setLoading(false);
+          return;
+        }
 
-    getSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         
@@ -76,6 +69,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         
         setLoading(false);
+      } catch (error) {
+        console.error('Error in getSession:', error);
+        setLoading(false);
+      }
+    };
+
+    getSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        try {
+          setSession(session);
+          setUser(session?.user ?? null);
+          
+          // Ensure partner profile exists for authenticated user
+          if (session?.user) {
+            await ensurePartnerProfile(session.user);
+          }
+          
+          setLoading(false);
+        } catch (error) {
+          console.error('Error in auth state change:', error);
+          setLoading(false);
+        }
       }
     );
 
@@ -90,6 +107,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          full_name: fullName
+        }
+      }
     });
 
     if (!error && data.user) {

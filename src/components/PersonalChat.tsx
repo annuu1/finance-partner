@@ -11,7 +11,9 @@ import {
   MoreVertical,
   Circle,
   CheckCircle2,
-  Clock
+  Clock,
+  ArrowLeft,
+  Menu
 } from 'lucide-react';
 
 interface Partner {
@@ -56,6 +58,7 @@ export default function PersonalChat() {
   const [sending, setSending] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [typingPartners, setTypingPartners] = useState<Set<string>>(new Set());
+  const [showSidebar, setShowSidebar] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -270,6 +273,12 @@ export default function PersonalChat() {
 
   const selectedPartnerData = partners.find(p => p.id === selectedPartner);
 
+  const handleSelectPartner = (partnerId: string) => {
+    setSelectedPartner(partnerId);
+    setShowSidebar(false);
+    messageForm.reset();
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -279,12 +288,37 @@ export default function PersonalChat() {
   }
 
   return (
-    <div className="h-[calc(100vh-12rem)] bg-white rounded-lg shadow-sm border border-gray-200 flex">
+    <div className="h-[calc(100vh-12rem)] bg-white rounded-lg shadow-sm border border-gray-200 flex relative">
+      {/* Mobile Sidebar Overlay */}
+      {showSidebar && (
+        <div 
+          className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
+          onClick={() => setShowSidebar(false)}
+        />
+      )}
+
       {/* Conversations Sidebar */}
-      <div className="w-1/3 border-r border-gray-200 flex flex-col">
+      <div className={`
+        ${showSidebar ? 'translate-x-0' : '-translate-x-full'}
+        lg:translate-x-0 lg:relative
+        fixed inset-y-0 left-0 z-50
+        w-80 lg:w-1/3 
+        border-r border-gray-200 
+        flex flex-col 
+        bg-white
+        transition-transform duration-300 ease-in-out
+      `}>
         {/* Sidebar Header */}
         <div className="p-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Messages</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-gray-900">Messages</h2>
+            <button
+              className="lg:hidden p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100"
+              onClick={() => setShowSidebar(false)}
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
@@ -309,10 +343,7 @@ export default function PersonalChat() {
               {filteredConversations.map((conversation) => (
                 <button
                   key={conversation.partner_id}
-                  onClick={() => {
-                    setSelectedPartner(conversation.partner_id);
-                    messageForm.reset();
-                  }}
+                  onClick={() => handleSelectPartner(conversation.partner_id)}
                   className={`w-full p-3 rounded-lg text-left transition-colors ${
                     selectedPartner === conversation.partner_id
                       ? 'bg-blue-50 border border-blue-200'
@@ -320,8 +351,8 @@ export default function PersonalChat() {
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <div className="relative">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <div className="relative flex-shrink-0">
                         <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                           <User className="h-4 w-4 text-blue-600" />
                         </div>
@@ -333,7 +364,7 @@ export default function PersonalChat() {
                         {conversation.partner_name}
                       </span>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 flex-shrink-0">
                       {conversation.unread_count > 0 && (
                         <span className="bg-blue-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] h-5 flex items-center justify-center">
                           {conversation.unread_count}
@@ -355,13 +386,19 @@ export default function PersonalChat() {
       </div>
 
       {/* Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {selectedPartner ? (
           <>
             {/* Chat Header */}
             <div className="p-4 border-b border-gray-200 bg-gray-50">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
+                  <button
+                    className="lg:hidden p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100"
+                    onClick={() => setShowSidebar(true)}
+                  >
+                    <Menu className="h-5 w-5" />
+                  </button>
                   <div className="relative">
                     <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
                       <User className="h-5 w-5 text-blue-600" />
@@ -370,8 +407,8 @@ export default function PersonalChat() {
                       <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
                     )}
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-gray-900 truncate">
                       {selectedPartnerData?.full_name}
                     </h3>
                     <p className="text-sm text-gray-500">
@@ -407,12 +444,12 @@ export default function PersonalChat() {
                           </div>
                         )}
                         <div className={`flex ${isFromCurrentUser ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                          <div className={`max-w-xs sm:max-w-sm lg:max-w-md px-4 py-2 rounded-lg ${
                             isFromCurrentUser
                               ? 'bg-blue-500 text-white'
                               : 'bg-gray-100 text-gray-900'
                           }`}>
-                            <p className="text-sm">{message.message_text}</p>
+                            <p className="text-sm break-words">{message.message_text}</p>
                             <div className={`flex items-center justify-end gap-1 mt-1 ${
                               isFromCurrentUser ? 'text-blue-100' : 'text-gray-500'
                             }`}>
@@ -470,7 +507,7 @@ export default function PersonalChat() {
                 <button
                   type="submit"
                   disabled={sending || !messageForm.watch('message_text')?.trim()}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center flex-shrink-0"
                 >
                   {sending ? (
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -484,9 +521,16 @@ export default function PersonalChat() {
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-500">
             <div className="text-center">
+              <button
+                className="lg:hidden mb-4 p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100"
+                onClick={() => setShowSidebar(true)}
+              >
+                <Menu className="h-6 w-6" />
+              </button>
               <MessageCircle className="h-16 w-16 mx-auto mb-4 text-gray-300" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">Select a conversation</h3>
-              <p>Choose a partner from the sidebar to start chatting</p>
+              <p className="hidden lg:block">Choose a partner from the sidebar to start chatting</p>
+              <p className="lg:hidden">Tap the menu button to see your conversations</p>
             </div>
           </div>
         )}
