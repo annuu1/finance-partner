@@ -275,17 +275,6 @@ export default function Partners() {
         console.log('Approving transaction:', transactionId);
         console.log('Sender ID:', transaction.from_partner_id);
         console.log('Receiver ID:', transaction.to_partner_id);
-        const { data: sender, error: senderFetchError } = await supabase
-          .from('partners')
-          .select('current_balance')
-          .eq('id', transaction.from_partner_id)
-          .single();
-        if (senderFetchError) {
-          console.error('Sender fetch error:', senderFetchError);
-          throw senderFetchError;
-        }
-        console.log('Sender current_balance:', sender.current_balance);
-
         const { data: receiver, error: receiverFetchError } = await supabase
           .from('partners')
           .select('current_balance')
@@ -294,33 +283,6 @@ export default function Partners() {
         if (receiverFetchError) {
           console.error('Receiver fetch error:', receiverFetchError);
           throw receiverFetchError;
-        }
-        console.log('Receiver current_balance:', receiver.current_balance);
-
-        // Calculate new balances
-        const newSenderBalance = (sender.current_balance ?? 0) - transaction.amount;
-        const newReceiverBalance = (receiver.current_balance ?? 0) + transaction.amount;
-        console.log('New sender balance:', newSenderBalance);
-        console.log('New receiver balance:', newReceiverBalance);
-
-        // Update sender balance
-        const { error: senderError } = await supabase
-          .from('partners')
-          .update({ current_balance: newSenderBalance })
-          .eq('id', transaction.from_partner_id);
-        if (senderError) {
-          console.error('Sender update error:', senderError);
-          throw senderError;
-        }
-
-        // Update receiver balance
-        const { error: receiverError } = await supabase
-          .from('partners')
-          .update({ current_balance: newReceiverBalance })
-          .eq('id', transaction.to_partner_id);
-        if (receiverError) {
-          console.error('Receiver update error:', receiverError);
-          throw receiverError;
         }
 
         alert('Transaction approved and balances updated!');
