@@ -8,7 +8,8 @@ import {
   Settings, 
   LogOut,
   Menu,
-  X
+  X,
+  Heart
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -27,6 +28,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
     { name: 'Daily Sales', id: 'sales', icon: DollarSign },
     { name: 'Partners', id: 'partners', icon: Users },
     { name: 'Expenses', id: 'expenses', icon: Receipt },
+    { name: 'Personal Space', id: 'personal', icon: Heart },
     { name: 'Reports', id: 'reports', icon: Settings },
   ];
 

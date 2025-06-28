@@ -7,6 +7,7 @@ import DailySales from './components/DailySales';
 import Partners from './components/Partners';
 import Expenses from './components/Expenses';
 import Reports from './components/Reports';
+import PersonalSpace from './components/PersonalSpace';
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -36,6 +37,8 @@ function AppContent() {
         return <Expenses />;
       case 'reports':
         return <Reports />;
+      case 'personal':
+        return <PersonalSpace />;
       default:
         return <Dashboard />;
     }
