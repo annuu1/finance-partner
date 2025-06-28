@@ -30,12 +30,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         console.log('Initializing auth...');
         
-        // Clear any existing session first to avoid caching issues
-        await supabase.auth.signOut();
-        
-        // Small delay to ensure cleanup
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
         // Get fresh session
         const { data: { session }, error } = await supabase.auth.getSession();
         
